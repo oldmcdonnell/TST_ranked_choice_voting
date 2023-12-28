@@ -1,48 +1,47 @@
-import login_data as lg
-import random
-import sqlite3
-import os
+from collections import Counter
 
-doc_login = input("please input username", '*')
-    sql.overwrite_username(doc_login)
-    if doc_login = username[*]:
-        print("That username is taken"), breakpoint(
+voting_round = 1
+rank = 0
 
-        )break
+candidates = []
 
-doc_login2 = input("please input password", key='doc_login2')
+candidate_votes = select_candidate(iWantYou)
 
-def prior_cert_user:
-    check concurrent usernames
+total_votes = Counter(candidate_votes)
 
-def doc_username(username, input("")):
-    cert_user = {username, index}
-        if cert_user != prior_cert_user:
-        else:
-            print("already taken")
+#add candidates but do not allow duplicates
+def add_candidate(x):
+    x = input("Please ender candidate name")
+    if(x != candidates):
+        candidates.append()
+        print(x + "has been added")
+    else:
+        print("That candidate has already been nominated")
 
-def doc_password(pwrwrd):
-    from sql_Data pwrwrd == True:
-        print("success")
+#only allow votes in a round if less than 50%
+def votes(candidate_votes):
+    if candidate_votes  < total_votes/2:
+        voting_round + 1
+    else:
+        print("winner")
 
-name = doc_Official_name.append
-
-lock = doc_login[doc_username(), doc_password()]
-
-if doc_username(x), doc_
-
-while login_user == True:
-    name.append_candidate() if key="add_candidate"
-
-doc_name = login_user(key='success')
-
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+# The amount of candidates you can choose from grows when new candidates are added, limit 20, If there are 20 candidates
+# then you can select your favorite 1 - 20 or just 1 and submit vote
+def select_candidate(iWantYou, x, y):
+    x = voting_round(rank +1)
+    iWantYou = candidates[x]
 
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
+print("please choose your candidate or add a write in")
+if candidates == 0:
+        add_candidate(input()):
+    elif:
+        candidates < 20:
+        match user_action:
+            case select:
+                select_candidate()
+            case add:
+            add_candidate()
+else:
+    print("too many candidates")
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
