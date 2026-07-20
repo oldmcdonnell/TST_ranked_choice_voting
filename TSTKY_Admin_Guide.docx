@@ -23,6 +23,7 @@ The general idea is simple, no passwords, no logins. If your email is verified b
 Session cookies and auth will have a TTL (time to live) to prevent hijacking. 
 We want a very basic, MVP version of this process to see how satanist, who are not normal people, react and have criticism. 
 We want to see how many people actually interact before we write unit tests for everything that could go wrong with a much larger group (no offense, this is weak-sauce).
+
 2. System Overview
 The platform has three parts, chosen to keep monthly hosting costs minimal (target: under $10/month total) while still being secure enough for a membership of 50–75 people.
 Component	What it does	Where it lives
