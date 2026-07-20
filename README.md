@@ -9,6 +9,15 @@ production app. See "Not done yet" below before going live.
 - **backend/** — Node + Fastify + better-sqlite3 (single file DB, no separate DB server to pay for)
 - **frontend/** — Vue 3 + Vite + Leaflet (OpenStreetMap, no Google Maps billing)
 
+## Prerequisites
+- Node.js installed locally (Node 18+ is recommended for Vite and Fastify)
+- One terminal for `backend`, one for `frontend`
+
+## Environment
+- Copy `backend/.env.example` to `backend/.env` and set `ADMIN_STUB_KEY` to a secret value for local testing
+- Backend env values include `PORT`, `DB_PATH`, `SESSION_SECRET`, `FRONTEND_URL`, `MAIL_FROM`, and WebAuthn-related placeholders
+- Frontend uses `VITE_API_URL` to point at the backend; it defaults to `http://localhost:8787`
+
 ## Running it locally
 
 ```bash
@@ -38,6 +47,22 @@ there to test the flow.
 - Double-voting is blocked
 - Vote tally + hash-chain tamper check
 
+## What you already have
+Your current platform already contains several strong design decisions:
+- Membership approval is separated from account activation.
+- Login uses one-time links rather than stored passwords.
+- Ballot participation is recorded separately from the anonymous vote.
+- Anonymous ballot tokens prevent the vote from being directly tied to a member.
+- Double voting is blocked.
+- The vote log has a hash-chain integrity check.
+- Location check-ins are opt-in.
+- SQLite keeps early hosting and maintenance simple.
+
+The central product message is:
+> The platform verifies that each eligible member votes only once, while keeping the contents of their ballot separate from their identity.
+
+That should be visible on the ballot request page, the review page, confirmation page, and the election integrity page.
+
 ## Not done yet — do before real go-live
 1. **Admin auth is a placeholder.** `src/routes/admin-auth.js` currently
    checks a single shared passcode (`ADMIN_STUB_KEY`). Replace with real
@@ -56,8 +81,10 @@ there to test the flow.
 5. **Ranked-choice voting**: not built yet, by design — the `polls` table
    already has a `ranked_choice` flag reserved for it. When you're ready,
    the ballot payload becomes an ordered list instead of a single string,
-   and the tally function gets an instant-runoff variant. Nothing else
-   in the schema or auth flow needs to change.
+   and the tally function gets an instant-runoff variant. The existing
+   eligibility and anonymous-token flow can remain in place, but ranked-choice
+   voting will also require additional validation rules, audit output, and
+   ballot/tally structure.
 
 ## Project layout
 ```
