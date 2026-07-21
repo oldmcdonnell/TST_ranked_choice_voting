@@ -29,6 +29,24 @@ CREATE TABLE IF NOT EXISTS login_tokens (
   used INTEGER NOT NULL DEFAULT 0
 );
 
+-- Congregation-only voter invitations. Admin adds emails here in bulk;
+-- each recipient confirms their own email before becoming a member.
+CREATE TABLE IF NOT EXISTS invitations (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL DEFAULT 'pending', -- pending | confirmed
+  invited_at TEXT NOT NULL DEFAULT (datetime('now')),
+  confirmed_at TEXT
+);
+
+-- Single-use, 30-day confirm links tied to an invitation.
+CREATE TABLE IF NOT EXISTS invite_tokens (
+  token TEXT PRIMARY KEY,
+  invitation_id TEXT NOT NULL REFERENCES invitations(id),
+  expires_at TEXT NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS admins (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,

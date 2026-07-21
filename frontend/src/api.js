@@ -41,4 +41,15 @@ export const api = {
     }),
   adminClosePoll: (adminKey, id) =>
     request(`/api/admin/polls/${id}/close`, { method: "POST", headers: { "x-admin-key": adminKey } }),
+
+  adminSendInvitations: (adminKey, emails) =>
+    request("/api/admin/invitations", {
+      method: "POST",
+      headers: { "x-admin-key": adminKey },
+      body: JSON.stringify({ emails }),
+    }),
+  adminInvitations: (adminKey) =>
+    request("/api/admin/invitations", { headers: { "x-admin-key": adminKey } }),
+  confirmInvitation: (token, name) =>
+    request("/api/invitations/confirm", { method: "POST", body: JSON.stringify({ token, name }) }),
 };
