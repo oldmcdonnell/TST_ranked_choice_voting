@@ -27,6 +27,19 @@ export default async function pollRoutes(app) {
     return rows.map(r => ({ ...r, options: JSON.parse(r.options_json), options_json: undefined }));
   });
 
+  // Admin: list every poll (open and closed) so voting status is visible at a glance
+  app.get("/api/admin/polls", { preHandler: requireAdminStub }, async () => {
+    const rows = db.prepare("SELECT id, question, options_json, status, closes_at, created_at FROM polls ORDER BY created_at DESC").all();
+    return rows.map(r => ({ ...r, options: JSON.parse(r.options_json), options_json: undefined }));
+  });
+
+  // Admin: reopen a closed poll — voting is only ever "on" while status = 'open'
+  app.post("/api/admin/polls/:id/open", { preHandler: requireAdminStub }, async (req, reply) => {
+    const result = db.prepare("UPDATE polls SET status = 'open' WHERE id = ?").run(req.params.id);
+    if (result.changes === 0) return reply.code(404).send({ error: "poll not found" });
+    return { ok: true };
+  });
+
   // Member requests a ballot. This is the ONE place a member's identity
   // and the poll ever touch — it records participation, then hands back
   // an anonymous token that's used for the actual vote.

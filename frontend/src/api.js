@@ -41,6 +41,17 @@ export const api = {
     }),
   adminClosePoll: (adminKey, id) =>
     request(`/api/admin/polls/${id}/close`, { method: "POST", headers: { "x-admin-key": adminKey } }),
+  adminOpenPoll: (adminKey, id) =>
+    request(`/api/admin/polls/${id}/open`, { method: "POST", headers: { "x-admin-key": adminKey } }),
+  adminPolls: (adminKey) =>
+    request("/api/admin/polls", { headers: { "x-admin-key": adminKey } }),
+
+  adminMembers: (adminKey) =>
+    request("/api/admin/members", { headers: { "x-admin-key": adminKey } }),
+  adminRecognizeMember: (adminKey, id) =>
+    request(`/api/admin/members/${id}/recognize`, { method: "POST", headers: { "x-admin-key": adminKey } }),
+  adminUnrecognizeMember: (adminKey, id) =>
+    request(`/api/admin/members/${id}/unrecognize`, { method: "POST", headers: { "x-admin-key": adminKey } }),
 
   adminSendInvitations: (adminKey, emails) =>
     request("/api/admin/invitations", {

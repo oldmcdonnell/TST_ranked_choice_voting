@@ -54,4 +54,28 @@ export default async function memberRoutes(app) {
     if (result.changes === 0) return reply.code(404).send({ error: "not found or already decided" });
     return { ok: true };
   });
+
+  // Admin: view all members, including recognized status
+  app.get("/api/admin/members", { preHandler: requireAdminStub }, async () => {
+    return db.prepare("SELECT id, name, email, active, recognized, recognized_at, created_at FROM members ORDER BY name ASC").all();
+  });
+
+  // Admin: mark a member as recognized (met in person) — this is what
+  // unlocks location sharing for them, checked in routes/checkins.js.
+  app.post("/api/admin/members/:id/recognize", { preHandler: requireAdminStub }, async (req, reply) => {
+    const result = db.prepare(
+      "UPDATE members SET recognized = 1, recognized_at = datetime('now') WHERE id = ?"
+    ).run(req.params.id);
+    if (result.changes === 0) return reply.code(404).send({ error: "member not found" });
+    return { ok: true };
+  });
+
+  // Admin: undo a recognition (e.g. marked by mistake)
+  app.post("/api/admin/members/:id/unrecognize", { preHandler: requireAdminStub }, async (req, reply) => {
+    const result = db.prepare(
+      "UPDATE members SET recognized = 0, recognized_at = NULL WHERE id = ?"
+    ).run(req.params.id);
+    if (result.changes === 0) return reply.code(404).send({ error: "member not found" });
+    return { ok: true };
+  });
 }

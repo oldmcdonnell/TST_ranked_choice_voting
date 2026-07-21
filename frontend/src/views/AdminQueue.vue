@@ -43,6 +43,35 @@
       <input v-model="optionsRaw" placeholder="Options, comma separated" style="width:100%" />
     </div>
     <button style="margin-top:.5rem" @click="createPoll">Create poll</button>
+
+    <button style="margin-top:1rem" @click="loadPolls">Refresh poll list</button>
+    <table v-if="polls.length" style="margin-top:.5rem; width:100%">
+      <tr v-for="p in polls" :key="p.id">
+        <td>{{ p.question }}</td>
+        <td>{{ p.status }}</td>
+        <td>
+          <button v-if="p.status === 'open'" @click="closePoll(p.id)">Close voting</button>
+          <button v-else @click="openPoll(p.id)">Reopen voting</button>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Members</h3>
+    <p>Mark someone as "recognized" once you've met them in person — this is what unlocks location sharing for them.</p>
+    <button @click="loadMembers">Load members</button>
+    <table v-if="members.length" style="margin-top:.5rem; width:100%">
+      <tr v-for="m in members" :key="m.id">
+        <td>{{ m.name }}</td>
+        <td>{{ m.email }}</td>
+        <td>{{ m.recognized ? "recognized" : "not recognized" }}</td>
+        <td>
+          <button v-if="!m.recognized" @click="recognize(m.id)">Recognize</button>
+          <button v-else @click="unrecognize(m.id)">Unrecognize</button>
+        </td>
+      </tr>
+    </table>
   </div>
 </template>
 
@@ -57,6 +86,8 @@ const optionsRaw = ref("");
 const invitesRaw = ref("");
 const inviteResults = ref([]);
 const invitations = ref([]);
+const polls = ref([]);
+const members = ref([]);
 
 async function loadApplicants() {
   applicants.value = await api.adminApplicants(adminKey.value);
@@ -89,5 +120,28 @@ async function createPoll() {
   question.value = "";
   optionsRaw.value = "";
   alert("Poll created.");
+  await loadPolls();
+}
+async function loadPolls() {
+  polls.value = await api.adminPolls(adminKey.value);
+}
+async function closePoll(id) {
+  await api.adminClosePoll(adminKey.value, id);
+  await loadPolls();
+}
+async function openPoll(id) {
+  await api.adminOpenPoll(adminKey.value, id);
+  await loadPolls();
+}
+async function loadMembers() {
+  members.value = await api.adminMembers(adminKey.value);
+}
+async function recognize(id) {
+  await api.adminRecognizeMember(adminKey.value, id);
+  await loadMembers();
+}
+async function unrecognize(id) {
+  await api.adminUnrecognizeMember(adminKey.value, id);
+  await loadMembers();
 }
 </script>

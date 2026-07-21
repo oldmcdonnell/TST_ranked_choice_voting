@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS members (
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
   active INTEGER NOT NULL DEFAULT 1,
+  recognized INTEGER NOT NULL DEFAULT 0, -- admin has met this person in person; gates location sharing
+  recognized_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

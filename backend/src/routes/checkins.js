@@ -11,6 +11,14 @@ export default async function checkinRoutes(app) {
     if (!memberId) return reply.code(401).send({ error: "login required" });
 
     const { lat, lng, visible } = req.body || {};
+
+    if (visible) {
+      const member = db.prepare("SELECT recognized FROM members WHERE id = ?").get(memberId);
+      if (!member?.recognized) {
+        return reply.code(403).send({ error: "not yet recognized by an admin — ask at a service to enable location sharing" });
+      }
+    }
+
     db.prepare(
       `INSERT INTO checkins (member_id, lat, lng, visible, updated_at)
        VALUES (?, ?, ?, ?, datetime('now'))

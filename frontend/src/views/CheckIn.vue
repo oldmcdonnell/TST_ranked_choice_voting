@@ -8,6 +8,9 @@
       <button style="margin-top:.5rem;margin-left:.5rem" @click="save">Save</button>
     </div>
     <p v-if="saved">Saved.</p>
+    <p v-if="notRecognized" style="color:#a33">
+      You'll need to be recognized by an admin (in person, e.g. at a service) before you can share your location.
+    </p>
   </div>
   <div class="card">
     <div id="map" style="height:350px;border-radius:8px"></div>
@@ -21,6 +24,7 @@ import { api } from "../api.js";
 
 const visible = ref(false);
 const saved = ref(false);
+const notRecognized = ref(false);
 let lat = null, lng = null;
 let map, markersLayer;
 
@@ -33,8 +37,18 @@ function useMyLocation() {
 }
 
 async function save() {
-  await api.checkin(lat, lng, visible.value);
-  saved.value = true;
+  notRecognized.value = false;
+  saved.value = false;
+  try {
+    await api.checkin(lat, lng, visible.value);
+    saved.value = true;
+  } catch (err) {
+    if (err.message?.includes("not yet recognized")) {
+      notRecognized.value = true;
+    } else {
+      throw err;
+    }
+  }
   await loadCheckins();
 }
 

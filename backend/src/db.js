@@ -13,3 +13,14 @@ db.pragma("journal_mode = WAL");
 
 const schema = fs.readFileSync(path.join(__dirname, "schema.sql"), "utf8");
 db.exec(schema);
+
+// Lightweight migration: CREATE TABLE IF NOT EXISTS above won't retrofit
+// columns onto a members table that already existed before this field
+// was added. Add it here if missing so upgrades don't require wiping data.
+const memberColumns = db.prepare("PRAGMA table_info(members)").all().map(c => c.name);
+if (!memberColumns.includes("recognized")) {
+  db.exec("ALTER TABLE members ADD COLUMN recognized INTEGER NOT NULL DEFAULT 0");
+}
+if (!memberColumns.includes("recognized_at")) {
+  db.exec("ALTER TABLE members ADD COLUMN recognized_at TEXT");
+}
