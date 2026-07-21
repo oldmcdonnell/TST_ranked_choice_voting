@@ -1,0 +1,403 @@
+From cd691efcc74f4cc096fa5b0171a1ff2117976404 Mon Sep 17 00:00:00 2001
+From: eoinmcdonnell-glitch <eoin.mcdonnell@instrument.com>
+Date: Tue, 21 Jul 2026 00:11:37 +0000
+Subject: [PATCH] Add congregation email-invite flow for voting access
+
+- New invitations/invite_tokens tables: admin bulk-invites emails,
+  each recipient confirms their own email via a single-use 30-day
+  link, then supplies their name and becomes an active member
+  (logged in immediately).
+- New /api/admin/invitations (POST bulk-send, GET list) and public
+  /api/invitations/confirm endpoints.
+- Admin page: paste emails, send invitations, view status.
+- New /invite/confirm frontend page for the confirmation step.
+
+Also fixes two pre-existing issues found along the way:
+- lib/sessions.js was missing entirely; server.js imports
+  pruneExpiredSessions from it, so the backend could not start.
+- .env.example was missing ADMIN_STUB_KEY, which admin-auth.js
+  requires to run.
+---
+ backend/.env.example                 |  4 ++
+ backend/src/lib/sessions.js          | 11 ++++
+ backend/src/lib/tokens.js            | 21 ++++++
+ backend/src/routes/invitations.js    | 97 ++++++++++++++++++++++++++++
+ backend/src/schema.sql               | 18 ++++++
+ backend/src/server.js                |  2 +
+ frontend/src/api.js                  | 11 ++++
+ frontend/src/router.js               |  2 +
+ frontend/src/views/AdminQueue.vue    | 36 +++++++++++
+ frontend/src/views/ConfirmInvite.vue | 43 ++++++++++++
+ 10 files changed, 245 insertions(+)
+ create mode 100644 backend/src/lib/sessions.js
+ create mode 100644 backend/src/routes/invitations.js
+ create mode 100644 frontend/src/views/ConfirmInvite.vue
+
+diff --git a/backend/.env.example b/backend/.env.example
+index bd4ec17..2c61d4c 100644
+--- a/backend/.env.example
++++ b/backend/.env.example
+@@ -5,6 +5,10 @@ DB_PATH=./data/tstky.sqlite
+ # Set to a long random string in production
+ SESSION_SECRET=change-me-dev-only
+ 
++# Shared key for the temporary /api/admin/* stub auth (see admin-auth.js).
++# Set to a long random string; replace with WebAuthn before go-live.
++ADMIN_STUB_KEY=change-me-dev-only
++
+ # Where the frontend is hosted, for CORS + links in emails
+ FRONTEND_URL=http://localhost:5173
+ 
+diff --git a/backend/src/lib/sessions.js b/backend/src/lib/sessions.js
+new file mode 100644
+index 0000000..6ca26b9
+--- /dev/null
++++ b/backend/src/lib/sessions.js
+@@ -0,0 +1,11 @@
++import { db } from "../db.js";
++
++// Clears out used/expired single-use tokens so these tables don't grow
++// forever. Called once at boot — fine for a congregation-sized deployment,
++// no cron needed.
++export function pruneExpiredSessions() {
++  const now = new Date().toISOString();
++  db.prepare("DELETE FROM login_tokens WHERE used = 1 OR expires_at < ?").run(now);
++  db.prepare("DELETE FROM invite_tokens WHERE used = 1 OR expires_at < ?").run(now);
++  db.prepare("DELETE FROM ballot_tokens WHERE used = 1").run();
++}
+diff --git a/backend/src/lib/tokens.js b/backend/src/lib/tokens.js
+index 65633b3..2664ed7 100644
+--- a/backend/src/lib/tokens.js
++++ b/backend/src/lib/tokens.js
+@@ -24,6 +24,27 @@ export function consumeLoginToken(token) {
+   return row.member_id;
+ }
+ 
++// Congregation invite confirmation tokens. Long-lived (default 30 days)
++// since these go out in a batch and people don't all check email same-day.
++export function issueInviteToken(invitationId, ttlMinutes = 60 * 24 * 30) {
++  const token = nanoid(32);
++  const expires = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
++  db.prepare(
++    "INSERT INTO invite_tokens (token, invitation_id, expires_at) VALUES (?, ?, ?)"
++  ).run(token, invitationId, expires);
++  return token;
++}
++
++export function consumeInviteToken(token) {
++  const row = db
++    .prepare("SELECT * FROM invite_tokens WHERE token = ? AND used = 0")
++    .get(token);
++  if (!row) return null;
++  if (new Date(row.expires_at) < new Date()) return null;
++  db.prepare("UPDATE invite_tokens SET used = 1 WHERE token = ?").run(token);
++  return row.invitation_id;
++}
++
+ // Anonymous ballot tokens — deliberately never stored alongside member_id.
+ // The caller records poll_participation separately, at issuance time only.
+ export function issueBallotToken(pollId) {
+diff --git a/backend/src/routes/invitations.js b/backend/src/routes/invitations.js
+new file mode 100644
+index 0000000..e8f16fb
+--- /dev/null
++++ b/backend/src/routes/invitations.js
+@@ -0,0 +1,97 @@
++import { db } from "../db.js";
++import { newId, issueInviteToken, consumeInviteToken } from "../lib/tokens.js";
++import { sendMail } from "../lib/mailer.js";
++import { requireAdminStub } from "./admin-auth.js";
++
++const INVITE_TTL_MINUTES = 60 * 24 * 30; // 30 days to confirm
++
++export default async function invitationRoutes(app) {
++  // Admin: paste/upload a batch of congregation emails. Re-running with the
++  // same list is safe — already-confirmed people are skipped, still-pending
++  // ones just get a fresh 30-day link.
++  app.post("/api/admin/invitations", { preHandler: requireAdminStub }, async (req, reply) => {
++    const { emails } = req.body || {};
++    if (!Array.isArray(emails) || emails.length === 0) {
++      return reply.code(400).send({ error: "emails array required" });
++    }
++
++    const results = [];
++    for (const raw of emails) {
++      const email = String(raw || "").toLowerCase().trim();
++      if (!email || !email.includes("@")) {
++        results.push({ email: raw, status: "skipped-invalid" });
++        continue;
++      }
++
++      const existingMember = db.prepare("SELECT id FROM members WHERE email = ?").get(email);
++      if (existingMember) {
++        results.push({ email, status: "skipped-already-member" });
++        continue;
++      }
++
++      let invitation = db.prepare("SELECT * FROM invitations WHERE email = ?").get(email);
++      if (invitation && invitation.status === "confirmed") {
++        results.push({ email, status: "skipped-already-confirmed" });
++        continue;
++      }
++      if (!invitation) {
++        invitation = { id: newId(), email };
++        db.prepare(
++          "INSERT INTO invitations (id, email, status) VALUES (?, ?, 'pending')"
++        ).run(invitation.id, email);
++      }
++
++      const token = issueInviteToken(invitation.id, INVITE_TTL_MINUTES);
++      const link = `${process.env.FRONTEND_URL}/invite/confirm?token=${token}`;
++      await sendMail(
++        email,
++        "Confirm your invitation to vote — TST Kentucky",
++        `You've been invited to join TST Kentucky's voting roll.\n\nConfirm here: ${link}\n\nThis link expires in 30 days.`
++      );
++      results.push({ email, status: "sent" });
++    }
++
++    return { ok: true, results };
++  });
++
++  // Admin: see invitation status (pending / confirmed) for the whole batch.
++  app.get("/api/admin/invitations", { preHandler: requireAdminStub }, async () => {
++    return db.prepare("SELECT * FROM invitations ORDER BY invited_at DESC").all();
++  });
++
++  // Public: recipient clicks their confirm link, gives their name, and
++  // becomes an active member — logged in immediately, same as a magic link.
++  app.post("/api/invitations/confirm", async (req, reply) => {
++    const { token, name } = req.body || {};
++    if (!token || !name) return reply.code(400).send({ error: "token and name required" });
++
++    const invitationId = consumeInviteToken(token);
++    if (!invitationId) return reply.code(400).send({ error: "invalid or expired invitation" });
++
++    const invitation = db.prepare("SELECT * FROM invitations WHERE id = ?").get(invitationId);
++    if (!invitation) return reply.code(400).send({ error: "invalid invitation" });
++
++    let member = db.prepare("SELECT * FROM members WHERE email = ?").get(invitation.email);
++    if (!member) {
++      const memberId = newId();
++      db.prepare("INSERT INTO members (id, name, email) VALUES (?, ?, ?)").run(
++        memberId, name.trim(), invitation.email
++      );
++      member = { id: memberId };
++    } else {
++      db.prepare("UPDATE members SET active = 1 WHERE id = ?").run(member.id);
++    }
++
++    db.prepare(
++      "UPDATE invitations SET status = 'confirmed', confirmed_at = datetime('now') WHERE id = ?"
++    ).run(invitation.id);
++
++    reply.setCookie("session_member", member.id, {
++      httpOnly: true,
++      sameSite: "lax",
++      path: "/",
++    });
++
++    return { ok: true, memberId: member.id };
++  });
++}
+diff --git a/backend/src/schema.sql b/backend/src/schema.sql
+index ee94ba7..5b787a0 100644
+--- a/backend/src/schema.sql
++++ b/backend/src/schema.sql
+@@ -29,6 +29,24 @@ CREATE TABLE IF NOT EXISTS login_tokens (
+   used INTEGER NOT NULL DEFAULT 0
+ );
+ 
++-- Congregation-only voter invitations. Admin adds emails here in bulk;
++-- each recipient confirms their own email before becoming a member.
++CREATE TABLE IF NOT EXISTS invitations (
++  id TEXT PRIMARY KEY,
++  email TEXT NOT NULL UNIQUE,
++  status TEXT NOT NULL DEFAULT 'pending', -- pending | confirmed
++  invited_at TEXT NOT NULL DEFAULT (datetime('now')),
++  confirmed_at TEXT
++);
++
++-- Single-use, 30-day confirm links tied to an invitation.
++CREATE TABLE IF NOT EXISTS invite_tokens (
++  token TEXT PRIMARY KEY,
++  invitation_id TEXT NOT NULL REFERENCES invitations(id),
++  expires_at TEXT NOT NULL,
++  used INTEGER NOT NULL DEFAULT 0
++);
++
+ CREATE TABLE IF NOT EXISTS admins (
+   id TEXT PRIMARY KEY,
+   name TEXT NOT NULL,
+diff --git a/backend/src/server.js b/backend/src/server.js
+index 9294347..cd22dcf 100644
+--- a/backend/src/server.js
++++ b/backend/src/server.js
+@@ -7,6 +7,7 @@ import authRoutes from "./routes/auth.js";
+ import memberRoutes from "./routes/members.js";
+ import checkinRoutes from "./routes/checkins.js";
+ import pollRoutes from "./routes/polls.js";
++import invitationRoutes from "./routes/invitations.js";
+ import { pruneExpiredSessions } from "./lib/sessions.js";
+ 
+ const app = Fastify({ logger: true });
+@@ -36,6 +37,7 @@ await app.register(authRoutes);
+ await app.register(memberRoutes);
+ await app.register(checkinRoutes);
+ await app.register(pollRoutes);
++await app.register(invitationRoutes);
+ 
+ app.get("/api/health", async () => ({ ok: true }));
+ 
+diff --git a/frontend/src/api.js b/frontend/src/api.js
+index a549e1f..ca3c104 100644
+--- a/frontend/src/api.js
++++ b/frontend/src/api.js
+@@ -41,4 +41,15 @@ export const api = {
+     }),
+   adminClosePoll: (adminKey, id) =>
+     request(`/api/admin/polls/${id}/close`, { method: "POST", headers: { "x-admin-key": adminKey } }),
++
++  adminSendInvitations: (adminKey, emails) =>
++    request("/api/admin/invitations", {
++      method: "POST",
++      headers: { "x-admin-key": adminKey },
++      body: JSON.stringify({ emails }),
++    }),
++  adminInvitations: (adminKey) =>
++    request("/api/admin/invitations", { headers: { "x-admin-key": adminKey } }),
++  confirmInvitation: (token, name) =>
++    request("/api/invitations/confirm", { method: "POST", body: JSON.stringify({ token, name }) }),
+ };
+diff --git a/frontend/src/router.js b/frontend/src/router.js
+index 05bc65d..1502fac 100644
+--- a/frontend/src/router.js
++++ b/frontend/src/router.js
+@@ -6,6 +6,7 @@ import LoginVerify from "./views/LoginVerify.vue";
+ import CheckIn from "./views/CheckIn.vue";
+ import Polls from "./views/Polls.vue";
+ import AdminQueue from "./views/AdminQueue.vue";
++import ConfirmInvite from "./views/ConfirmInvite.vue";
+ 
+ export const router = createRouter({
+   history: createWebHistory(),
+@@ -17,5 +18,6 @@ export const router = createRouter({
+     { path: "/checkin", component: CheckIn },
+     { path: "/polls", component: Polls },
+     { path: "/admin", component: AdminQueue },
++    { path: "/invite/confirm", component: ConfirmInvite },
+   ],
+ });
+diff --git a/frontend/src/views/AdminQueue.vue b/frontend/src/views/AdminQueue.vue
+index 8e473fe..4afc629 100644
+--- a/frontend/src/views/AdminQueue.vue
++++ b/frontend/src/views/AdminQueue.vue
+@@ -17,6 +17,25 @@
+     </div>
+   </div>
+ 
++  <div class="card">
++    <h3>Invite congregation to vote</h3>
++    <p>Paste emails (one per line, or comma-separated). Each person confirms their own email before they can vote.</p>
++    <textarea v-model="invitesRaw" rows="5" style="width:100%" placeholder="jane@example.com&#10;john@example.com"></textarea>
++    <button style="margin-top:.5rem" @click="sendInvitations">Send invitations</button>
++    <div v-if="inviteResults.length" style="margin-top:.75rem">
++      <div v-for="r in inviteResults" :key="r.email">{{ r.email }} — {{ r.status }}</div>
++    </div>
++
++    <button style="margin-top:1rem" @click="loadInvitations">Refresh invitation list</button>
++    <table v-if="invitations.length" style="margin-top:.5rem; width:100%">
++      <tr v-for="inv in invitations" :key="inv.id">
++        <td>{{ inv.email }}</td>
++        <td>{{ inv.status }}</td>
++        <td>{{ inv.invited_at }}</td>
++      </tr>
++    </table>
++  </div>
++
+   <div class="card">
+     <h3>Open a new poll</h3>
+     <input v-model="question" placeholder="Question" style="width:100%" />
+@@ -35,6 +54,9 @@ const adminKey = ref("");
+ const applicants = ref([]);
+ const question = ref("");
+ const optionsRaw = ref("");
++const invitesRaw = ref("");
++const inviteResults = ref([]);
++const invitations = ref([]);
+ 
+ async function loadApplicants() {
+   applicants.value = await api.adminApplicants(adminKey.value);
+@@ -47,6 +69,20 @@ async function deny(id) {
+   await api.adminDeny(adminKey.value, id);
+   await loadApplicants();
+ }
++async function sendInvitations() {
++  const emails = invitesRaw.value
++    .split(/[\n,]/)
++    .map(s => s.trim())
++    .filter(Boolean);
++  if (!emails.length) return;
++  const res = await api.adminSendInvitations(adminKey.value, emails);
++  inviteResults.value = res.results;
++  invitesRaw.value = "";
++  await loadInvitations();
++}
++async function loadInvitations() {
++  invitations.value = await api.adminInvitations(adminKey.value);
++}
+ async function createPoll() {
+   const options = optionsRaw.value.split(",").map(s => s.trim()).filter(Boolean);
+   await api.adminCreatePoll(adminKey.value, question.value, options);
+diff --git a/frontend/src/views/ConfirmInvite.vue b/frontend/src/views/ConfirmInvite.vue
+new file mode 100644
+index 0000000..9a94d60
+--- /dev/null
++++ b/frontend/src/views/ConfirmInvite.vue
+@@ -0,0 +1,43 @@
++<template>
++  <div class="card">
++    <h2>Confirm your invitation</h2>
++    <p v-if="status === 'form'">You've been invited to join TST Kentucky's voting roll. Enter your name to confirm.</p>
++    <form v-if="status === 'form'" @submit.prevent="submit">
++      <input v-model="name" placeholder="Full name" required style="width:100%" />
++      <button style="margin-top:.75rem" type="submit">Confirm</button>
++    </form>
++    <p v-else-if="status === 'ok'">You're confirmed and logged in. <router-link to="/polls">Go to polls</router-link></p>
++    <p v-else-if="status === 'error'">{{ errorMessage }}</p>
++    <p v-else>Loading…</p>
++  </div>
++</template>
++
++<script setup>
++import { ref, onMounted } from "vue";
++import { useRoute } from "vue-router";
++import { api } from "../api.js";
++
++const route = useRoute();
++const status = ref("loading");
++const name = ref("");
++const errorMessage = ref("");
++
++onMounted(() => {
++  if (!route.query.token) {
++    status.value = "error";
++    errorMessage.value = "Missing invitation token.";
++    return;
++  }
++  status.value = "form";
++});
++
++async function submit() {
++  try {
++    await api.confirmInvitation(route.query.token, name.value);
++    status.value = "ok";
++  } catch (err) {
++    status.value = "error";
++    errorMessage.value = err.message || "That invitation link is invalid or expired.";
++  }
++}
++</script>
+-- 
+2.43.0
+
