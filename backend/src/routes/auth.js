@@ -1,6 +1,7 @@
 import { db } from "../db.js";
 import { issueLoginToken, consumeLoginToken } from "../lib/tokens.js";
 import { sendMail } from "../lib/mailer.js";
+import { createSession, destroySession } from "../lib/sessions.js";
 
 export default async function authRoutes(app) {
   // Member requests a login link
@@ -28,17 +29,21 @@ export default async function authRoutes(app) {
     const memberId = token && consumeLoginToken(token);
     if (!memberId) return reply.code(400).send({ error: "invalid or expired link" });
 
-    // TODO: issue a real signed session cookie/JWT. Stubbed for now.
-    reply.setCookie("session_member", memberId, {
+    const session = createSession(memberId);
+    reply.setCookie("sid", session.id, {
       httpOnly: true,
       sameSite: "lax",
       path: "/",
+      signed: true, // requires COOKIE_SECRET — see server.js
+      expires: new Date(session.expiresAt),
     });
-    return { ok: true, memberId };
+    return { ok: true };
   });
 
   app.post("/api/auth/logout", async (req, reply) => {
-    reply.clearCookie("session_member", { path: "/" });
+    const sessionId = req.unsignCookie(req.cookies.sid || "").value;
+    destroySession(sessionId);
+    reply.clearCookie("sid", { path: "/" });
     return { ok: true };
   });
 }

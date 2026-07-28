@@ -1,7 +1,9 @@
 import { db } from "../db.js";
+import { getMemberFromSession } from "../lib/sessions.js";
 
 function currentMember(req) {
-  return req.cookies?.session_member || null;
+  const sessionId = req.unsignCookie(req.cookies?.sid || "").value;
+  return getMemberFromSession(sessionId);
 }
 
 export default async function checkinRoutes(app) {

@@ -22,6 +22,17 @@ CREATE TABLE IF NOT EXISTS members (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Real login sessions. The cookie only ever holds this table's `id`
+-- (random, signed) — never a member_id directly — so a forged/guessed
+-- cookie value can't be used to impersonate someone, and sessions expire
+-- server-side regardless of what the browser does with the cookie.
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  member_id TEXT NOT NULL REFERENCES members(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS login_tokens (
   token TEXT PRIMARY KEY,
   member_id TEXT NOT NULL REFERENCES members(id),

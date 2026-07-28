@@ -1,9 +1,11 @@
 import { db } from "../db.js";
 import { newId, issueBallotToken, consumeBallotToken, appendVote, verifyChain } from "../lib/tokens.js";
 import { requireAdminStub } from "./admin-auth.js";
+import { getMemberFromSession } from "../lib/sessions.js";
 
 function currentMember(req) {
-  return req.cookies?.session_member || null;
+  const sessionId = req.unsignCookie(req.cookies?.sid || "").value;
+  return getMemberFromSession(sessionId);
 }
 
 export default async function pollRoutes(app) {
