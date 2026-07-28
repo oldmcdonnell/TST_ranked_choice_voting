@@ -33,7 +33,13 @@ export function destroySession(sessionId) {
 }
 
 // Housekeeping — call occasionally (e.g. on server start) to clear
-// long-expired rows instead of letting the table grow forever.
+// long-expired/used rows instead of letting these tables grow forever.
+// Covers real login sessions plus the various single-use tokens
+// (magic-link logins, congregation invites, spent ballot tokens).
 export function pruneExpiredSessions() {
+  const now = new Date().toISOString();
   db.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
+  db.prepare("DELETE FROM login_tokens WHERE used = 1 OR expires_at < ?").run(now);
+  db.prepare("DELETE FROM invite_tokens WHERE used = 1 OR expires_at < ?").run(now);
+  db.prepare("DELETE FROM ballot_tokens WHERE used = 1").run();
 }

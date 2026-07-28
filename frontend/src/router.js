@@ -6,6 +6,7 @@ import LoginVerify from "./views/LoginVerify.vue";
 import CheckIn from "./views/CheckIn.vue";
 import Polls from "./views/Polls.vue";
 import AdminQueue from "./views/AdminQueue.vue";
+import ConfirmInvite from "./views/ConfirmInvite.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -17,5 +18,6 @@ export const router = createRouter({
     { path: "/checkin", component: CheckIn },
     { path: "/polls", component: Polls },
     { path: "/admin", component: AdminQueue },
+    { path: "/invite/confirm", component: ConfirmInvite },
   ],
 });

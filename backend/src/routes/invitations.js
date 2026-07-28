@@ -2,6 +2,7 @@ import { db } from "../db.js";
 import { newId, issueInviteToken, consumeInviteToken } from "../lib/tokens.js";
 import { sendMail } from "../lib/mailer.js";
 import { requireAdminStub } from "./admin-auth.js";
+import { createSession } from "../lib/sessions.js";
 
 const INVITE_TTL_MINUTES = 60 * 24 * 30; // 30 days to confirm
 
@@ -60,7 +61,9 @@ export default async function invitationRoutes(app) {
   });
 
   // Public: recipient clicks their confirm link, gives their name, and
-  // becomes an active member — logged in immediately, same as a magic link.
+  // becomes an active member — logged in immediately via the same signed,
+  // expiring session system as a normal magic-link login (NOT a raw
+  // member-id cookie — see lib/sessions.js).
   app.post("/api/invitations/confirm", async (req, reply) => {
     const { token, name } = req.body || {};
     if (!token || !name) return reply.code(400).send({ error: "token and name required" });
@@ -86,10 +89,13 @@ export default async function invitationRoutes(app) {
       "UPDATE invitations SET status = 'confirmed', confirmed_at = datetime('now') WHERE id = ?"
     ).run(invitation.id);
 
-    reply.setCookie("session_member", member.id, {
+    const session = createSession(member.id);
+    reply.setCookie("sid", session.id, {
       httpOnly: true,
       sameSite: "lax",
       path: "/",
+      signed: true,
+      expires: new Date(session.expiresAt),
     });
 
     return { ok: true, memberId: member.id };

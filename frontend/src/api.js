@@ -23,8 +23,8 @@ export const api = {
     request(`/api/polls/${pollId}/vote`, { method: "POST", body: JSON.stringify({ ballotToken, choice }) }),
   verifyChain: (pollId) => request(`/api/polls/${pollId}/verify`),
 
-  checkin: (lat, lng, visible) =>
-    request("/api/checkin", { method: "POST", body: JSON.stringify({ lat, lng, visible }) }),
+  checkin: (lat, lng, visible, region) =>
+    request("/api/checkin", { method: "POST", body: JSON.stringify({ lat, lng, visible, region }) }),
   checkins: () => request("/api/checkins"),
 
   // Admin endpoints need the stub key until WebAuthn replaces this
@@ -41,4 +41,15 @@ export const api = {
     }),
   adminClosePoll: (adminKey, id) =>
     request(`/api/admin/polls/${id}/close`, { method: "POST", headers: { "x-admin-key": adminKey } }),
+
+  adminSendInvitations: (adminKey, emails) =>
+    request("/api/admin/invitations", {
+      method: "POST",
+      headers: { "x-admin-key": adminKey },
+      body: JSON.stringify({ emails }),
+    }),
+  adminInvitations: (adminKey) =>
+    request("/api/admin/invitations", { headers: { "x-admin-key": adminKey } }),
+  confirmInvitation: (token, name) =>
+    request("/api/invitations/confirm", { method: "POST", body: JSON.stringify({ token, name }) }),
 };

@@ -7,6 +7,7 @@ import authRoutes from "./routes/auth.js";
 import memberRoutes from "./routes/members.js";
 import checkinRoutes from "./routes/checkins.js";
 import pollRoutes from "./routes/polls.js";
+import invitationRoutes from "./routes/invitations.js";
 import { pruneExpiredSessions } from "./lib/sessions.js";
 
 const app = Fastify({ logger: true });
@@ -36,6 +37,7 @@ await app.register(authRoutes);
 await app.register(memberRoutes);
 await app.register(checkinRoutes);
 await app.register(pollRoutes);
+await app.register(invitationRoutes);
 
 app.get("/api/health", async () => ({ ok: true }));
 

@@ -3,6 +3,17 @@
     <h2>Check-in map</h2>
     <p>Opt-in only — turn visibility off any time.</p>
     <label><input type="checkbox" v-model="visible" /> Show my location to other members</label>
+    <div style="margin-top:.5rem">
+      <label>
+        Region (optional — not used anywhere yet, just captured for later):
+        <select v-model="region" style="margin-left:.5rem">
+          <option value="">Not specified</option>
+          <option value="western">Western</option>
+          <option value="central">Central</option>
+          <option value="eastern">Eastern</option>
+        </select>
+      </label>
+    </div>
     <div>
       <button style="margin-top:.5rem" @click="useMyLocation">Use my current location</button>
       <button style="margin-top:.5rem;margin-left:.5rem" @click="save">Save</button>
@@ -20,6 +31,7 @@ import L from "leaflet";
 import { api } from "../api.js";
 
 const visible = ref(false);
+const region = ref("");
 const saved = ref(false);
 let lat = null, lng = null;
 let map, markersLayer;
@@ -33,7 +45,7 @@ function useMyLocation() {
 }
 
 async function save() {
-  await api.checkin(lat, lng, visible.value);
+  await api.checkin(lat, lng, visible.value, region.value || null);
   saved.value = true;
   await loadCheckins();
 }

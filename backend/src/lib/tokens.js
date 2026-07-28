@@ -24,6 +24,27 @@ export function consumeLoginToken(token) {
   return row.member_id;
 }
 
+// Congregation invite confirmation tokens. Long-lived (default 30 days)
+// since these go out in a batch and people don't all check email same-day.
+export function issueInviteToken(invitationId, ttlMinutes = 60 * 24 * 30) {
+  const token = nanoid(32);
+  const expires = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
+  db.prepare(
+    "INSERT INTO invite_tokens (token, invitation_id, expires_at) VALUES (?, ?, ?)"
+  ).run(token, invitationId, expires);
+  return token;
+}
+
+export function consumeInviteToken(token) {
+  const row = db
+    .prepare("SELECT * FROM invite_tokens WHERE token = ? AND used = 0")
+    .get(token);
+  if (!row) return null;
+  if (new Date(row.expires_at) < new Date()) return null;
+  db.prepare("UPDATE invite_tokens SET used = 1 WHERE token = ?").run(token);
+  return row.invitation_id;
+}
+
 // Anonymous ballot tokens — deliberately never stored alongside member_id.
 // The caller records poll_participation separately, at issuance time only.
 export function issueBallotToken(pollId) {

@@ -7,19 +7,22 @@ function currentMember(req) {
 }
 
 export default async function checkinRoutes(app) {
-  // Member sets/updates their own location; opt-in visibility
+  // Member sets/updates their own location; opt-in visibility.
+  // `region` is optional and stubbed in for now (see schema.sql) — not
+  // used for any filtering or grouping yet, just captured so the data
+  // exists once region-based views are built.
   app.post("/api/checkin", async (req, reply) => {
     const memberId = currentMember(req);
     if (!memberId) return reply.code(401).send({ error: "login required" });
 
-    const { lat, lng, visible } = req.body || {};
+    const { lat, lng, visible, region } = req.body || {};
     db.prepare(
-      `INSERT INTO checkins (member_id, lat, lng, visible, updated_at)
-       VALUES (?, ?, ?, ?, datetime('now'))
+      `INSERT INTO checkins (member_id, lat, lng, region, visible, updated_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))
        ON CONFLICT(member_id) DO UPDATE SET
-         lat = excluded.lat, lng = excluded.lng,
+         lat = excluded.lat, lng = excluded.lng, region = excluded.region,
          visible = excluded.visible, updated_at = datetime('now')`
-    ).run(memberId, lat ?? null, lng ?? null, visible ? 1 : 0);
+    ).run(memberId, lat ?? null, lng ?? null, region ?? null, visible ? 1 : 0);
 
     return { ok: true };
   });
@@ -31,7 +34,7 @@ export default async function checkinRoutes(app) {
 
     return db
       .prepare(
-        `SELECT c.lat, c.lng, m.name, c.updated_at
+        `SELECT c.lat, c.lng, c.region, m.name, c.updated_at
          FROM checkins c JOIN members m ON m.id = c.member_id
          WHERE c.visible = 1`
       )
