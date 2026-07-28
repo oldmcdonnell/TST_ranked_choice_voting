@@ -1,9 +1,11 @@
 import { db } from "../db.js";
 import { newId, issueBallotToken, consumeBallotToken, appendVote, verifyChain } from "../lib/tokens.js";
 import { requireAdminStub } from "./admin-auth.js";
+import { getMemberFromSession } from "../lib/sessions.js";
 
 function currentMember(req) {
-  return req.cookies?.session_member || null;
+  const sessionId = req.unsignCookie(req.cookies?.sid || "").value;
+  return getMemberFromSession(sessionId);
 }
 
 export default async function pollRoutes(app) {
@@ -25,19 +27,6 @@ export default async function pollRoutes(app) {
     if (!currentMember(req)) return reply.code(401).send({ error: "login required" });
     const rows = db.prepare("SELECT id, question, options_json, status, closes_at FROM polls WHERE status = 'open'").all();
     return rows.map(r => ({ ...r, options: JSON.parse(r.options_json), options_json: undefined }));
-  });
-
-  // Admin: list every poll (open and closed) so voting status is visible at a glance
-  app.get("/api/admin/polls", { preHandler: requireAdminStub }, async () => {
-    const rows = db.prepare("SELECT id, question, options_json, status, closes_at, created_at FROM polls ORDER BY created_at DESC").all();
-    return rows.map(r => ({ ...r, options: JSON.parse(r.options_json), options_json: undefined }));
-  });
-
-  // Admin: reopen a closed poll — voting is only ever "on" while status = 'open'
-  app.post("/api/admin/polls/:id/open", { preHandler: requireAdminStub }, async (req, reply) => {
-    const result = db.prepare("UPDATE polls SET status = 'open' WHERE id = ?").run(req.params.id);
-    if (result.changes === 0) return reply.code(404).send({ error: "poll not found" });
-    return { ok: true };
   });
 
   // Member requests a ballot. This is the ONE place a member's identity

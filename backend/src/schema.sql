@@ -19,32 +19,23 @@ CREATE TABLE IF NOT EXISTS members (
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
   active INTEGER NOT NULL DEFAULT 1,
-  recognized INTEGER NOT NULL DEFAULT 0, -- admin has met this person in person; gates location sharing
-  recognized_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Real login sessions. The cookie only ever holds this table's `id`
+-- (random, signed) — never a member_id directly — so a forged/guessed
+-- cookie value can't be used to impersonate someone, and sessions expire
+-- server-side regardless of what the browser does with the cookie.
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  member_id TEXT NOT NULL REFERENCES members(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS login_tokens (
   token TEXT PRIMARY KEY,
   member_id TEXT NOT NULL REFERENCES members(id),
-  expires_at TEXT NOT NULL,
-  used INTEGER NOT NULL DEFAULT 0
-);
-
--- Congregation-only voter invitations. Admin adds emails here in bulk;
--- each recipient confirms their own email before becoming a member.
-CREATE TABLE IF NOT EXISTS invitations (
-  id TEXT PRIMARY KEY,
-  email TEXT NOT NULL UNIQUE,
-  status TEXT NOT NULL DEFAULT 'pending', -- pending | confirmed
-  invited_at TEXT NOT NULL DEFAULT (datetime('now')),
-  confirmed_at TEXT
-);
-
--- Single-use, 30-day confirm links tied to an invitation.
-CREATE TABLE IF NOT EXISTS invite_tokens (
-  token TEXT PRIMARY KEY,
-  invitation_id TEXT NOT NULL REFERENCES invitations(id),
   expires_at TEXT NOT NULL,
   used INTEGER NOT NULL DEFAULT 0
 );
