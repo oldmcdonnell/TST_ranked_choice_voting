@@ -6,6 +6,7 @@
         <input type="radio" :name="poll.id" :value="opt" v-model="choice[poll.id]" /> {{ opt }}
       </label>
       <button @click="castVote(poll.id)">Submit vote</button>
+      <p v-if="errors[poll.id]" style="color:#a33;margin-top:.5rem">{{ errors[poll.id] }}</p>
     </div>
     <p v-else>
       Vote recorded — receipt hash: <code>{{ results[poll.id] }}</code>
@@ -22,14 +23,25 @@ import { api } from "../api.js";
 const polls = ref([]);
 const choice = reactive({});
 const results = reactive({});
+const errors = reactive({});
 
 async function castVote(pollId) {
-  if (!choice[pollId]) return alert("Pick an option first.");
-  // Step 1: request an anonymous ballot token (this is where "has voted" gets recorded)
-  const { ballotToken } = await api.requestBallot(pollId);
-  // Step 2: submit the vote using only the token — no identity attached
-  const { receiptHash } = await api.vote(pollId, ballotToken, choice[pollId]);
-  results[pollId] = receiptHash;
+  errors[pollId] = "";
+  if (!choice[pollId]) {
+    errors[pollId] = "Pick an option first.";
+    return;
+  }
+  try {
+    // Step 1: request an anonymous ballot token (this is where "has voted" gets recorded)
+    const { ballotToken } = await api.requestBallot(pollId);
+    // Step 2: submit the vote using only the token — no identity attached
+    const { receiptHash } = await api.vote(pollId, ballotToken, choice[pollId]);
+    results[pollId] = receiptHash;
+  } catch (err) {
+    errors[pollId] = err.message === "already voted in this poll"
+      ? "You've already voted in this poll."
+      : (err.message || "Something went wrong submitting your vote.");
+  }
 }
 
 onMounted(async () => {
