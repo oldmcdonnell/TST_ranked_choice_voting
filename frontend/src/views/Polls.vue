@@ -11,6 +11,12 @@
     <p v-else>
       Vote recorded — receipt hash: <code>{{ results[poll.id] }}</code>
       <br />This proves your vote was tallied, without revealing which option you picked.
+      <br />Save this hash somewhere — once the poll closes, you can check it against the
+      published results to confirm your vote was counted correctly.
+      <br />
+      <button style="margin-top:.5rem" @click="emailReceipt(poll.id)" :disabled="emailSent[poll.id]">
+        {{ emailSent[poll.id] ? "Receipt emailed ✓" : "Email me this receipt" }}
+      </button>
     </p>
   </div>
   <p v-if="polls.length === 0">No open polls right now.</p>
@@ -24,6 +30,7 @@ const polls = ref([]);
 const choice = reactive({});
 const results = reactive({});
 const errors = reactive({});
+const emailSent = reactive({});
 
 async function castVote(pollId) {
   errors[pollId] = "";
@@ -41,6 +48,15 @@ async function castVote(pollId) {
     errors[pollId] = err.message === "already voted in this poll"
       ? "You've already voted in this poll."
       : (err.message || "Something went wrong submitting your vote.");
+  }
+}
+
+async function emailReceipt(pollId) {
+  try {
+    await api.emailReceipt(pollId, results[pollId]);
+    emailSent[pollId] = true;
+  } catch (err) {
+    errors[pollId] = err.message || "Couldn't email the receipt — you still have it saved above.";
   }
 }
 

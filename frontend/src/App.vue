@@ -4,6 +4,7 @@
       <router-link to="/">Home</router-link>
       <router-link to="/checkin">Check-In Map</router-link>
       <router-link to="/polls">Polls</router-link>
+      <router-link to="/verify">Verify a Vote</router-link>
       <router-link to="/login">Member Login</router-link>
       <router-link to="/admin">Admin</router-link>
     </nav>

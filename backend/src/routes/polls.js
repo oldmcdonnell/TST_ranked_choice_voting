@@ -2,6 +2,7 @@ import { db } from "../db.js";
 import { newId, issueBallotToken, consumeBallotToken, appendVote, verifyChain } from "../lib/tokens.js";
 import { requireAdminStub } from "./admin-auth.js";
 import { getMemberFromSession } from "../lib/sessions.js";
+import { sendMail } from "../lib/mailer.js";
 
 function currentMember(req) {
   const sessionId = req.unsignCookie(req.cookies?.sid || "").value;
@@ -88,6 +89,96 @@ export default async function pollRoutes(app) {
   // seeing who voted which way.
   app.get("/api/polls/:id/verify", async (req) => {
     return verifyChain(req.params.id);
+  });
+
+  // Public: check a specific saved receipt hash against a poll. No login
+  // required — possessing the hash IS the proof it's yours, same as a
+  // paper voting receipt. Reveals only the choice tied to THAT hash (which
+  // the voter already knows, since it's their own vote) plus whether the
+  // overall chain is intact — never anything that identifies who cast it.
+  app.get("/api/polls/:id/verify-receipt", async (req, reply) => {
+    const { hash } = req.query || {};
+    if (!hash) return reply.code(400).send({ error: "hash query param required" });
+
+    const row = db
+      .prepare("SELECT choice_json, created_at FROM votes WHERE poll_id = ? AND hash = ?")
+      .get(req.params.id, hash);
+
+    if (!row) return { found: false };
+
+    return {
+      found: true,
+      choice: JSON.parse(row.choice_json),
+      castAt: row.created_at,
+      chain: verifyChain(req.params.id),
+    };
+  });
+
+  // Public (once closed): the full recount ledger — every vote's hash and
+  // choice, in cast order, plus the chain-integrity check. This is what a
+  // saved receipt gets checked against for a real recount. Gated to closed
+  // polls only, so live tallies aren't visible while voting is still open.
+  app.get("/api/polls/:id/public-results", async (req, reply) => {
+    const poll = db.prepare("SELECT * FROM polls WHERE id = ?").get(req.params.id);
+    if (!poll) return reply.code(404).send({ error: "poll not found" });
+    if (poll.status !== "closed") {
+      return reply.code(403).send({ error: "results are only public once the poll is closed" });
+    }
+
+    const rows = db
+      .prepare("SELECT hash, choice_json, created_at FROM votes WHERE poll_id = ? ORDER BY created_at ASC, id ASC")
+      .all(poll.id);
+
+    const counts = {};
+    const ledger = rows.map(r => {
+      const choice = JSON.parse(r.choice_json);
+      counts[choice] = (counts[choice] || 0) + 1;
+      return { hash: r.hash, choice, castAt: r.created_at };
+    });
+
+    return {
+      pollId: poll.id,
+      question: poll.question,
+      totalVotes: ledger.length,
+      counts,
+      ledger,
+      chain: verifyChain(poll.id),
+    };
+  });
+
+  // Member (must be logged in): email a copy of a receipt hash to
+  // themselves. Deliberately does NOT write anything to the database —
+  // this only reads a hash the client already has and re-verifies it's
+  // real before emailing it, so no member<->vote link is ever stored.
+  app.post("/api/polls/:id/email-receipt", async (req, reply) => {
+    const memberId = currentMember(req);
+    if (!memberId) return reply.code(401).send({ error: "login required" });
+
+    const { receiptHash } = req.body || {};
+    if (!receiptHash) return reply.code(400).send({ error: "receiptHash required" });
+
+    const poll = db.prepare("SELECT * FROM polls WHERE id = ?").get(req.params.id);
+    if (!poll) return reply.code(404).send({ error: "poll not found" });
+
+    const row = db
+      .prepare("SELECT choice_json FROM votes WHERE poll_id = ? AND hash = ?")
+      .get(poll.id, receiptHash);
+    if (!row) return reply.code(400).send({ error: "that receipt hash wasn't found for this poll" });
+
+    const member = db.prepare("SELECT email FROM members WHERE id = ?").get(memberId);
+    if (!member) return reply.code(404).send({ error: "member not found" });
+
+    await sendMail(
+      member.email,
+      `Your voting receipt — ${poll.question}`,
+      `Keep this for your records. If there's ever a recount, this hash can be checked ` +
+      `against the published results once the poll closes.\n\n` +
+      `Poll: ${poll.question}\nReceipt hash: ${receiptHash}\n\n` +
+      `This receipt does not reveal your identity — it only proves a vote matching this ` +
+      `hash was recorded.`
+    );
+
+    return { ok: true };
   });
 
   function tally(pollId) {
