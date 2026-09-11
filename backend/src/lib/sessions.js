@@ -1,11 +1,15 @@
 import { nanoid } from "nanoid";
 import { db } from "../db.js";
 
-const SESSION_DAYS = 30; // idle-expiry window — tune as you like
+// Idle-expiry window. Members only ever need to be logged in long enough
+// to cast a ballot (or finish an application/check-in) — not for weeks at
+// a stretch — so this defaults short. Override via SESSION_HOURS in .env.
+const SESSION_HOURS = Number(process.env.SESSION_HOURS) || 4;
+const SESSION_MS = SESSION_HOURS * 60 * 60_000;
 
 export function createSession(memberId) {
   const id = nanoid(32);
-  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60_000).toISOString();
+  const expiresAt = new Date(Date.now() + SESSION_MS).toISOString();
   db.prepare("INSERT INTO sessions (id, member_id, expires_at) VALUES (?, ?, ?)").run(
     id, memberId, expiresAt
   );
@@ -23,7 +27,7 @@ export function getMemberFromSession(sessionId) {
     db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
     return null;
   }
-  const newExpiry = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60_000).toISOString();
+  const newExpiry = new Date(Date.now() + SESSION_MS).toISOString();
   db.prepare("UPDATE sessions SET expires_at = ? WHERE id = ?").run(newExpiry, sessionId);
   return row.member_id;
 }

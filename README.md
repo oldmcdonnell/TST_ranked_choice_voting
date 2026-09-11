@@ -17,7 +17,7 @@ going live.
 ## Environment
 - Copy `backend/.env.example` to `backend/.env` and set `ADMIN_STUB_KEY` to a secret value for local testing
 - Also set `SESSION_SECRET` in `backend/.env` — the server refuses to start without it (see "What's already working" below)
-- Backend env values include `PORT`, `DB_PATH`, `SESSION_SECRET`, `ADMIN_STUB_KEY`, `FRONTEND_URL`, `MAIL_FROM`, and WebAuthn-related placeholders (`RP_NAME`, `RP_ID`, `ORIGIN`)
+- Backend env values include `PORT`, `DB_PATH`, `SESSION_SECRET`, `SESSION_HOURS` (member login idle-expiry, default 4), `ADMIN_STUB_KEY`, `FRONTEND_URL`, `MAIL_FROM`, and WebAuthn-related placeholders (`RP_NAME`, `RP_ID`, `ORIGIN`)
 - Frontend uses `VITE_API_URL` to point at the backend; it defaults to `http://localhost:8787`
 
 ## Running it locally
@@ -46,8 +46,10 @@ terminal** — copy the link from there to test the flow.
   confirms their own email via a 30-day link and is logged in immediately
   (same signed-session system as a normal magic-link login, not a raw cookie)
 - Member logs in via one-time link (no password)
-- Sessions are signed, expiring cookies (30-day idle expiry) — a forged
-  cookie value is rejected, logout actually invalidates the session
+- Sessions are signed, expiring cookies (4-hour idle expiry by default,
+  tune via `SESSION_HOURS`) — a forged cookie value is rejected, logout
+  actually invalidates the session. Kept short since the only real use
+  case is logging in to cast one ballot, not staying signed in for weeks.
 - Admin opens a poll
 - Member requests a ballot (records participation — the non-repudiation
   step) and casts a vote using only an anonymous token
