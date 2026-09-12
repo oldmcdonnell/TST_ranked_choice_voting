@@ -46,6 +46,19 @@
       style="width:100%;margin-top:.5rem"
       placeholder="Optional blurb: give voters context on what's being decided"
     ></textarea>
+
+    <div style="margin-top:.5rem">
+      <label style="margin-right:1rem">
+        <input type="radio" value="single" v-model="votingMethod" /> Single choice (use this for Yes/No too)
+      </label>
+      <label>
+        <input type="radio" value="ranked" v-model="votingMethod" /> Ranked choice
+      </label>
+    </div>
+    <label style="display:block;margin-top:.5rem">
+      <input type="checkbox" v-model="required" /> Required (counts toward the missed-vote rule)
+    </label>
+
     <div v-for="(opt, i) in options" :key="i" style="margin-top:.5rem;display:flex;gap:.5rem">
       <input v-model="options[i]" :placeholder="`Option ${i + 1}`" style="flex:1" />
       <button @click="removeOption(i)" :disabled="options.length <= 2" title="Remove option">✕</button>
@@ -74,13 +87,19 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 import { api } from "../api.js";
 
 const adminKey = ref("");
+onMounted(() => {
+  const devKey = localStorage.getItem("devAdminKey");
+  if (devKey) adminKey.value = devKey;
+});
 const applicants = ref([]);
 const question = ref("");
 const description = ref("");
+const votingMethod = ref("single");
+const required = ref(false);
 const options = ref(["", ""]); // start with 2 blank options — minimum needed for a poll
 const availableDocuments = ref([]);
 const selectedDocuments = ref([]);
@@ -180,12 +199,16 @@ async function createPoll() {
       question.value.trim(),
       cleanOptions,
       description.value.trim(),
-      selectedDocuments.value
+      selectedDocuments.value,
+      votingMethod.value,
+      required.value
     );
     question.value = "";
     description.value = "";
     options.value = ["", ""];
     selectedDocuments.value = [];
+    votingMethod.value = "single";
+    required.value = false;
     alert("Poll created.");
   } catch (err) {
     friendlyError(err);

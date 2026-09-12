@@ -22,8 +22,9 @@ export const api = {
 
   polls: () => request("/api/polls"),
   requestBallot: (pollId) => request(`/api/polls/${pollId}/request-ballot`, { method: "POST" }),
-  vote: (pollId, ballotToken, choice) =>
-    request(`/api/polls/${pollId}/vote`, { method: "POST", body: JSON.stringify({ ballotToken, choice }) }),
+  vote: (pollId, ballotToken, choice, comment) =>
+    request(`/api/polls/${pollId}/vote`, { method: "POST", body: JSON.stringify({ ballotToken, choice, comment }) }),
+  myBallot: (pollId, token) => request(`/api/polls/${pollId}/my-ballot?token=${encodeURIComponent(token)}`),
   verifyChain: (pollId) => request(`/api/polls/${pollId}/verify`),
 
   checkin: (lat, lng, visible, region) =>
@@ -36,11 +37,14 @@ export const api = {
     request(`/api/admin/applicants/${id}/approve`, { method: "POST", headers: { "x-admin-key": adminKey } }),
   adminDeny: (adminKey, id) =>
     request(`/api/admin/applicants/${id}/deny`, { method: "POST", headers: { "x-admin-key": adminKey } }),
-  adminCreatePoll: (adminKey, question, options, description, documents) =>
+  adminCreatePoll: (adminKey, question, options, description, documents, votingMethod, required) =>
     request("/api/admin/polls", {
       method: "POST",
-      headers: { "x-admin-key": adminKey },
-      body: JSON.stringify({ question, options, description, documents }),
+      headers: {
+        "x-admin-key": adminKey,
+        "Idempotency-Key": `poll-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      },
+      body: JSON.stringify({ question, options, description, documents, votingMethod, required }),
     }),
   adminClosePoll: (adminKey, id) =>
     request(`/api/admin/polls/${id}/close`, { method: "POST", headers: { "x-admin-key": adminKey } }),
@@ -57,4 +61,8 @@ export const api = {
     request("/api/admin/invitations", { headers: { "x-admin-key": adminKey } }),
   confirmInvitation: (token, name) =>
     request("/api/invitations/confirm", { method: "POST", body: JSON.stringify({ token, name }) }),
+
+  // Only works when the backend has DEV_LOGIN_ENABLED=true — see routes/dev-login.js
+  devLogin: (email, password) =>
+    request("/api/dev/login", { method: "POST", body: JSON.stringify({ email, password }) }),
 };
