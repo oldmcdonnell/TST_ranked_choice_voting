@@ -40,11 +40,33 @@
   <div class="card">
     <h3>Open a new poll</h3>
     <input v-model="question" placeholder="Question" style="width:100%" />
+    <textarea
+      v-model="description"
+      rows="3"
+      style="width:100%;margin-top:.5rem"
+      placeholder="Optional blurb: give voters context on what's being decided"
+    ></textarea>
     <div v-for="(opt, i) in options" :key="i" style="margin-top:.5rem;display:flex;gap:.5rem">
       <input v-model="options[i]" :placeholder="`Option ${i + 1}`" style="flex:1" />
       <button @click="removeOption(i)" :disabled="options.length <= 2" title="Remove option">✕</button>
     </div>
     <button style="margin-top:.5rem" @click="addOption">Add option</button>
+
+    <div style="margin-top:.75rem">
+      <strong>Reference documents</strong>
+      <p style="margin:.25rem 0;font-size:.9em;color:#666">
+        Stubbed: drop files into <code>backend/data/documents/</code>, then refresh the list
+        and check the ones voters should see for this poll.
+      </p>
+      <button @click="loadDocuments">Refresh document list</button>
+      <div v-if="availableDocuments.length" style="margin-top:.5rem">
+        <label v-for="doc in availableDocuments" :key="doc" style="display:block">
+          <input type="checkbox" :value="doc" v-model="selectedDocuments" /> {{ doc }}
+        </label>
+      </div>
+      <p v-else style="font-size:.9em;color:#666">No documents in the folder yet.</p>
+    </div>
+
     <div>
       <button style="margin-top:.5rem" @click="createPoll">Create poll</button>
     </div>
@@ -58,7 +80,10 @@ import { api } from "../api.js";
 const adminKey = ref("");
 const applicants = ref([]);
 const question = ref("");
+const description = ref("");
 const options = ref(["", ""]); // start with 2 blank options — minimum needed for a poll
+const availableDocuments = ref([]);
+const selectedDocuments = ref([]);
 const invitesRaw = ref("");
 const inviteResults = ref([]);
 const invitations = ref([]);
@@ -130,6 +155,14 @@ async function loadInvitations() {
     friendlyError(err);
   }
 }
+async function loadDocuments() {
+  errorMessage.value = "";
+  try {
+    availableDocuments.value = await api.adminDocuments(adminKey.value);
+  } catch (err) {
+    friendlyError(err);
+  }
+}
 async function createPoll() {
   errorMessage.value = "";
   try {
@@ -142,9 +175,17 @@ async function createPoll() {
       errorMessage.value = "Enter at least 2 non-empty options.";
       return;
     }
-    await api.adminCreatePoll(adminKey.value, question.value.trim(), cleanOptions);
+    await api.adminCreatePoll(
+      adminKey.value,
+      question.value.trim(),
+      cleanOptions,
+      description.value.trim(),
+      selectedDocuments.value
+    );
     question.value = "";
+    description.value = "";
     options.value = ["", ""];
+    selectedDocuments.value = [];
     alert("Poll created.");
   } catch (err) {
     friendlyError(err);

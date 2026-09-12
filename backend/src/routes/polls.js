@@ -12,22 +12,31 @@ function currentMember(req) {
 export default async function pollRoutes(app) {
   // Admin: open a new poll (single-choice for now; ranked_choice comes later)
   app.post("/api/admin/polls", { preHandler: requireAdminStub }, async (req, reply) => {
-    const { question, options, closesAt } = req.body || {};
+    const { question, description, options, documents, closesAt } = req.body || {};
     if (!question || !Array.isArray(options) || options.length < 2) {
       return reply.code(400).send({ error: "question and at least 2 options required" });
     }
+    if (documents !== undefined && !Array.isArray(documents)) {
+      return reply.code(400).send({ error: "documents must be an array of filenames" });
+    }
     const id = newId();
     db.prepare(
-      "INSERT INTO polls (id, question, options_json, closes_at) VALUES (?, ?, ?, ?)"
-    ).run(id, question, JSON.stringify(options), closesAt || null);
+      "INSERT INTO polls (id, question, description, options_json, documents_json, closes_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run(id, question, description || null, JSON.stringify(options), JSON.stringify(documents || []), closesAt || null);
     return { ok: true, id };
   });
 
   // Anyone logged in: list open polls
   app.get("/api/polls", async (req, reply) => {
     if (!currentMember(req)) return reply.code(401).send({ error: "login required" });
-    const rows = db.prepare("SELECT id, question, options_json, status, closes_at FROM polls WHERE status = 'open'").all();
-    return rows.map(r => ({ ...r, options: JSON.parse(r.options_json), options_json: undefined }));
+    const rows = db.prepare("SELECT id, question, description, options_json, documents_json, status, closes_at FROM polls WHERE status = 'open'").all();
+    return rows.map(r => ({
+      ...r,
+      options: JSON.parse(r.options_json),
+      documents: JSON.parse(r.documents_json),
+      options_json: undefined,
+      documents_json: undefined,
+    }));
   });
 
   // Member requests a ballot. This is the ONE place a member's identity

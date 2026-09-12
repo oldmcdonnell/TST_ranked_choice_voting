@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_URL || "http://localhost:8787";
+export const BASE = import.meta.env.VITE_API_URL || "http://localhost:8787";
 
 async function request(path, opts = {}) {
   const res = await fetch(BASE + path, {
@@ -36,14 +36,16 @@ export const api = {
     request(`/api/admin/applicants/${id}/approve`, { method: "POST", headers: { "x-admin-key": adminKey } }),
   adminDeny: (adminKey, id) =>
     request(`/api/admin/applicants/${id}/deny`, { method: "POST", headers: { "x-admin-key": adminKey } }),
-  adminCreatePoll: (adminKey, question, options) =>
+  adminCreatePoll: (adminKey, question, options, description, documents) =>
     request("/api/admin/polls", {
       method: "POST",
       headers: { "x-admin-key": adminKey },
-      body: JSON.stringify({ question, options }),
+      body: JSON.stringify({ question, options, description, documents }),
     }),
   adminClosePoll: (adminKey, id) =>
     request(`/api/admin/polls/${id}/close`, { method: "POST", headers: { "x-admin-key": adminKey } }),
+  adminDocuments: (adminKey) =>
+    request("/api/admin/documents", { headers: { "x-admin-key": adminKey } }),
 
   adminSendInvitations: (adminKey, emails) =>
     request("/api/admin/invitations", {

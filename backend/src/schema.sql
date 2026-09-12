@@ -90,7 +90,9 @@ CREATE TABLE IF NOT EXISTS checkins (
 CREATE TABLE IF NOT EXISTS polls (
   id TEXT PRIMARY KEY,
   question TEXT NOT NULL,
+  description TEXT, -- optional longer blurb explaining what's being voted on
   options_json TEXT NOT NULL, -- JSON array of option strings
+  documents_json TEXT NOT NULL DEFAULT '[]', -- JSON array of filenames from data/documents/
   ranked_choice INTEGER NOT NULL DEFAULT 0, -- 0 = single choice, 1 = ranked (later)
   status TEXT NOT NULL DEFAULT 'open', -- open | closed
   created_at TEXT NOT NULL DEFAULT (datetime('now')),

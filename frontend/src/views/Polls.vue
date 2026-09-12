@@ -1,6 +1,15 @@
 <template>
   <div class="card" v-for="poll in polls" :key="poll.id">
     <h3>{{ poll.question }}</h3>
+    <p v-if="poll.description" style="white-space:pre-wrap;color:#444">{{ poll.description }}</p>
+    <div v-if="poll.documents && poll.documents.length" style="margin:.5rem 0">
+      <strong>Reference documents:</strong>
+      <ul style="margin:.25rem 0">
+        <li v-for="doc in poll.documents" :key="doc">
+          <a :href="documentUrl(doc)" target="_blank" rel="noopener">{{ doc }}</a>
+        </li>
+      </ul>
+    </div>
     <div v-if="!results[poll.id]">
       <label v-for="opt in poll.options" :key="opt" style="display:block;margin:.25rem 0">
         <input type="radio" :name="poll.id" :value="opt" v-model="choice[poll.id]" /> {{ opt }}
@@ -24,9 +33,13 @@
 
 <script setup>
 import { ref, onMounted, reactive } from "vue";
-import { api } from "../api.js";
+import { api, BASE } from "../api.js";
 
 const polls = ref([]);
+
+function documentUrl(filename) {
+  return `${BASE}/api/documents/${encodeURIComponent(filename)}`;
+}
 const choice = reactive({});
 const results = reactive({});
 const errors = reactive({});

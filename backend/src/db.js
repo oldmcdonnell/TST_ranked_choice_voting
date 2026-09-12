@@ -13,3 +13,14 @@ db.pragma("journal_mode = WAL");
 
 const schema = fs.readFileSync(path.join(__dirname, "schema.sql"), "utf8");
 db.exec(schema);
+
+// Minimal migration step: CREATE TABLE IF NOT EXISTS above only helps on a
+// fresh DB — an existing tstky.sqlite from before a column was added needs
+// it bolted on explicitly.
+const pollColumns = db.prepare("PRAGMA table_info(polls)").all().map(c => c.name);
+if (!pollColumns.includes("description")) {
+  db.exec("ALTER TABLE polls ADD COLUMN description TEXT");
+}
+if (!pollColumns.includes("documents_json")) {
+  db.exec("ALTER TABLE polls ADD COLUMN documents_json TEXT NOT NULL DEFAULT '[]'");
+}
