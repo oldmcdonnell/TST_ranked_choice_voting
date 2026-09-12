@@ -45,5 +45,9 @@ export function pruneExpiredSessions() {
   db.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
   db.prepare("DELETE FROM login_tokens WHERE used = 1 OR expires_at < ?").run(now);
   db.prepare("DELETE FROM invite_tokens WHERE used = 1 OR expires_at < ?").run(now);
-  db.prepare("DELETE FROM ballot_tokens WHERE used = 1").run();
+  // Ballot tokens stay re-votable for a 30-minute edit window (see
+  // routes/polls.js), so only prune ones well past any possible window —
+  // not by `used`, which no longer means "can't vote with this again".
+  db.prepare("DELETE FROM ballot_tokens WHERE issued_at < datetime('now', '-1 day')").run();
+  db.prepare("DELETE FROM idempotency_keys WHERE created_at < datetime('now', '-1 day')").run();
 }
