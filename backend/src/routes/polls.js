@@ -7,7 +7,7 @@ import {
   appendVote,
   verifyChain,
 } from "../lib/tokens.js";
-import { requireAdminStub } from "./admin-auth.js";
+import { requireAdmin } from "./admin-auth.js";
 import { getMemberFromSession } from "../lib/sessions.js";
 import { sendMail } from "../lib/mailer.js";
 import { withIdempotency } from "../lib/idempotency.js";
@@ -115,7 +115,7 @@ export default async function pollRoutes(app) {
   // currently-active membership into poll_eligible_members in the same
   // transaction, so later joins/departures can't change who this poll
   // counts as eligible.
-  app.post("/api/admin/polls", { preHandler: requireAdminStub }, async (req, reply) => {
+  app.post("/api/admin/polls", { preHandler: requireAdmin }, async (req, reply) => {
     const { question, description, options, documents, closesAt, votingMethod, required } = req.body || {};
     if (!question || !Array.isArray(options) || options.length < 2) {
       return reply.code(400).send({ error: "question and at least 2 options required" });
@@ -278,12 +278,12 @@ export default async function pollRoutes(app) {
   });
 
   // Admin: close a poll and get the tally
-  app.post("/api/admin/polls/:id/close", { preHandler: requireAdminStub }, async (req, reply) => {
+  app.post("/api/admin/polls/:id/close", { preHandler: requireAdmin }, async (req, reply) => {
     db.prepare("UPDATE polls SET status = 'closed' WHERE id = ?").run(req.params.id);
     return computeResults(req.params.id);
   });
 
-  app.get("/api/admin/polls/:id/results", { preHandler: requireAdminStub }, async (req) => {
+  app.get("/api/admin/polls/:id/results", { preHandler: requireAdmin }, async (req) => {
     return computeResults(req.params.id);
   });
 
@@ -292,7 +292,7 @@ export default async function pollRoutes(app) {
   // touches vote content, so this can't reveal how anyone voted, only
   // whether they showed up. Feeds the three-missed-vote review manually;
   // no automatic status change happens here.
-  app.get("/api/admin/participation/misses", { preHandler: requireAdminStub }, async () => {
+  app.get("/api/admin/participation/misses", { preHandler: requireAdmin }, async () => {
     const rows = db
       .prepare(
         `SELECT em.member_id AS memberId, m.name, m.email, COUNT(*) AS missed

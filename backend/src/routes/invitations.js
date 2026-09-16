@@ -1,7 +1,7 @@
 import { db } from "../db.js";
 import { newId, issueInviteToken, consumeInviteToken } from "../lib/tokens.js";
 import { sendMail } from "../lib/mailer.js";
-import { requireAdminStub } from "./admin-auth.js";
+import { requireAdmin } from "./admin-auth.js";
 import { createSession } from "../lib/sessions.js";
 
 const INVITE_TTL_MINUTES = 60 * 24 * 30; // 30 days to confirm
@@ -10,7 +10,7 @@ export default async function invitationRoutes(app) {
   // Admin: paste/upload a batch of congregation emails. Re-running with the
   // same list is safe — already-confirmed people are skipped, still-pending
   // ones just get a fresh 30-day link.
-  app.post("/api/admin/invitations", { preHandler: requireAdminStub }, async (req, reply) => {
+  app.post("/api/admin/invitations", { preHandler: requireAdmin }, async (req, reply) => {
     const { emails } = req.body || {};
     if (!Array.isArray(emails) || emails.length === 0) {
       return reply.code(400).send({ error: "emails array required" });
@@ -56,7 +56,7 @@ export default async function invitationRoutes(app) {
   });
 
   // Admin: see invitation status (pending / confirmed) for the whole batch.
-  app.get("/api/admin/invitations", { preHandler: requireAdminStub }, async () => {
+  app.get("/api/admin/invitations", { preHandler: requireAdmin }, async () => {
     return db.prepare("SELECT * FROM invitations ORDER BY invited_at DESC").all();
   });
 

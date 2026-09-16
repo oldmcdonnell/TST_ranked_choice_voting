@@ -31,34 +31,33 @@ export const api = {
     request("/api/checkin", { method: "POST", body: JSON.stringify({ lat, lng, visible, region }) }),
   checkins: () => request("/api/checkins"),
 
-  // Admin endpoints need the stub key until WebAuthn replaces this
-  adminApplicants: (adminKey) => request("/api/admin/applicants", { headers: { "x-admin-key": adminKey } }),
-  adminApprove: (adminKey, id) =>
-    request(`/api/admin/applicants/${id}/approve`, { method: "POST", headers: { "x-admin-key": adminKey } }),
-  adminDeny: (adminKey, id) =>
-    request(`/api/admin/applicants/${id}/deny`, { method: "POST", headers: { "x-admin-key": adminKey } }),
-  adminCreatePoll: (adminKey, question, options, description, documents, votingMethod, required) =>
+  adminRegisterOptions: (email, name, setupToken) => request("/api/admin/auth/register/options", { method: "POST", body: JSON.stringify({ email, name, setupToken }) }),
+  adminRegisterVerify: (challengeId, credential, label) => request("/api/admin/auth/register/verify", { method: "POST", body: JSON.stringify({ challengeId, credential, label }) }),
+  adminLoginOptions: (email) => request("/api/admin/auth/login/options", { method: "POST", body: JSON.stringify({ email }) }),
+  adminLoginVerify: (challengeId, credential) => request("/api/admin/auth/login/verify", { method: "POST", body: JSON.stringify({ challengeId, credential }) }),
+  adminLogout: () => request("/api/admin/auth/logout", { method: "POST" }),
+  adminApplicants: () => request("/api/admin/applicants"),
+  adminApprove: (id) =>
+    request(`/api/admin/applicants/${id}/approve`, { method: "POST" }),
+  adminDeny: (id) =>
+    request(`/api/admin/applicants/${id}/deny`, { method: "POST" }),
+  adminCreatePoll: (question, options, description, documents, votingMethod, required) =>
     request("/api/admin/polls", {
       method: "POST",
       headers: {
-        "x-admin-key": adminKey,
         "Idempotency-Key": `poll-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       },
       body: JSON.stringify({ question, options, description, documents, votingMethod, required }),
     }),
-  adminClosePoll: (adminKey, id) =>
-    request(`/api/admin/polls/${id}/close`, { method: "POST", headers: { "x-admin-key": adminKey } }),
-  adminDocuments: (adminKey) =>
-    request("/api/admin/documents", { headers: { "x-admin-key": adminKey } }),
+  adminClosePoll: (id) => request(`/api/admin/polls/${id}/close`, { method: "POST" }),
+  adminDocuments: () => request("/api/admin/documents"),
 
-  adminSendInvitations: (adminKey, emails) =>
+  adminSendInvitations: (emails) =>
     request("/api/admin/invitations", {
       method: "POST",
-      headers: { "x-admin-key": adminKey },
       body: JSON.stringify({ emails }),
     }),
-  adminInvitations: (adminKey) =>
-    request("/api/admin/invitations", { headers: { "x-admin-key": adminKey } }),
+  adminInvitations: () => request("/api/admin/invitations"),
   confirmInvitation: (token, name) =>
     request("/api/invitations/confirm", { method: "POST", body: JSON.stringify({ token, name }) }),
 

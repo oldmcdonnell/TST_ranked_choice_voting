@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^13.2.0",
     "vue": "^3.4.38",
     "vue-router": "^4.4.3",
     "leaflet": "^1.9.4"

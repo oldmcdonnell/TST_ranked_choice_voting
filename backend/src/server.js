@@ -9,6 +9,7 @@ import checkinRoutes from "./routes/checkins.js";
 import pollRoutes from "./routes/polls.js";
 import invitationRoutes from "./routes/invitations.js";
 import documentRoutes from "./routes/documents.js";
+import adminAuthRoutes from "./routes/admin-auth.js";
 import { pruneExpiredSessions } from "./lib/sessions.js";
 
 const app = Fastify({ logger: true });
@@ -34,6 +35,7 @@ await app.register(cookie, {
 
 pruneExpiredSessions();
 
+await app.register(adminAuthRoutes);
 await app.register(authRoutes);
 await app.register(memberRoutes);
 await app.register(checkinRoutes);
