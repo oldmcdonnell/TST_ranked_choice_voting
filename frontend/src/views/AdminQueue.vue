@@ -81,7 +81,12 @@
     </div>
 
     <div>
-      <button style="margin-top:.5rem" @click="createPoll">Create poll</button>
+      <!-- Disabled while a create request is in flight, so a double-click
+           can't fire a second request (the idempotency key below is the
+           backstop if one gets through anyway). -->
+      <button style="margin-top:.5rem" @click="createPoll" :disabled="creatingPoll">
+        {{ creatingPoll ? "Creating…" : "Create poll" }}
+      </button>
     </div>
   </div>
 </template>
@@ -107,6 +112,16 @@ const invitesRaw = ref("");
 const inviteResults = ref([]);
 const invitations = ref([]);
 const errorMessage = ref("");
+
+// One Idempotency-Key per poll draft: reused for every click/retry until the
+// poll is actually created, then replaced so the next poll gets a fresh one.
+// The backend (lib/idempotency.js) returns the first result for a repeated
+// key instead of creating a duplicate poll.
+function newPollKey() {
+  return `poll-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+const pollIdempotencyKey = ref(newPollKey());
+const creatingPoll = ref(false);
 
 function addOption() {
   options.value.push("");
@@ -183,7 +198,9 @@ async function loadDocuments() {
   }
 }
 async function createPoll() {
+  if (creatingPoll.value) return; // a request is already in flight
   errorMessage.value = "";
+  creatingPoll.value = true;
   try {
     const cleanOptions = options.value.map(o => o.trim()).filter(Boolean);
     if (!question.value.trim()) {
@@ -196,6 +213,7 @@ async function createPoll() {
     }
     await api.adminCreatePoll(
       adminKey.value,
+      pollIdempotencyKey.value,
       question.value.trim(),
       cleanOptions,
       description.value.trim(),
@@ -209,9 +227,15 @@ async function createPoll() {
     selectedDocuments.value = [];
     votingMethod.value = "single";
     required.value = false;
+    // Poll exists now — the next draft needs its own key
+    pollIdempotencyKey.value = newPollKey();
     alert("Poll created.");
   } catch (err) {
+    // Keep the same key: retrying this draft after a failure (e.g. the
+    // response was lost but the poll was created) must not duplicate it.
     friendlyError(err);
+  } finally {
+    creatingPoll.value = false;
   }
 }
 </script>

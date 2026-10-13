@@ -219,7 +219,7 @@ export default async function pollRoutes(app) {
 
     const latest = db
       .prepare(
-        "SELECT choice_json, comment FROM votes WHERE poll_id = ? AND ballot_token = ? ORDER BY created_at DESC, id DESC LIMIT 1"
+        "SELECT choice_json, comment, hash FROM votes WHERE poll_id = ? AND ballot_token = ? ORDER BY created_at DESC, id DESC LIMIT 1"
       )
       .get(poll.id, token);
 
@@ -230,6 +230,7 @@ export default async function pollRoutes(app) {
       hasVoted: !!latest,
       choice: latest ? JSON.parse(latest.choice_json) : null,
       comment: latest ? latest.comment : null,
+      receiptHash: latest ? latest.hash : null,
       votingMethod: poll.ranked_choice ? "ranked" : "single",
       options: JSON.parse(poll.options_json),
       editable,
