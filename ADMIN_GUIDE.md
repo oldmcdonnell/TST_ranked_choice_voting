@@ -49,22 +49,32 @@ Polls are designed around one core rule: every eligible member gets exactly one 
 
 ### Opening a poll
 
-6. An admin creates the poll (question + choices) from the admin panel and sets an open/close window.
-7. All approved members are notified that a poll is open.
+6. An admin creates the poll — choosing either **single-choice** (a plain Yes/No is just a single-choice poll with those two options) or **ranked-choice** (members rank their preferred options in order) — and sets an open/close window.
+7. The admin can optionally mark the poll **required**. Required polls feed the attendance count described under "Attendance Tracking for Required Votes" below; it has no effect on how anyone votes or is counted.
+8. The admin can optionally add a short description of what's being decided and attach reference documents (e.g. the full text of a motion) for members to read before they vote.
+9. All approved members are notified that a poll is open.
 
 ### How a vote is cast
 
-8. A member logs in and requests a ballot for the open poll. At this moment the system permanently records that this member has participated — this cannot later be denied or disputed by the member or the organization.
-9. The member is issued a one-time, anonymous ballot token. This token is not linked to their identity in the vote records.
-10. The member submits their chosen answer along with the token, through a separate step that only ever sees the token — never the member's identity.
-11. The system checks the token hasn't already been used (preventing double voting) and records the vote in a tamper-evident log (each entry is cryptographically chained to the one before it, so any after-the-fact alteration is detectable).
+10. A member logs in and requests a ballot for the open poll. At this moment the system permanently records that this member has participated — this cannot later be denied or disputed by the member or the organization.
+11. The member is issued a one-time, anonymous ballot token. This token is not linked to their identity in the vote records.
+12. The member submits their answer (their single choice, or their ranked order of preference) along with the token, through a separate step that only ever sees the token — never the member's identity. They may add a short optional comment along with their vote.
+13. **The member can reopen their ballot and change their answer for 30 minutes after they first submit.** Resubmitting isn't treated as double voting — it replaces their standing answer. Once 30 minutes have passed since their first submission, that member's vote is locked in.
+14. The system checks the token is still valid for editing and records the vote in a tamper-evident log (each entry is cryptographically chained to the one before it, so any after-the-fact alteration — including the trail of a member's own edits — is detectable). Only a member's final answer counts toward the result; earlier drafts stay in the log for audit purposes but are never counted.
+
+### Attendance tracking for required votes
+
+For polls marked **required**, the system keeps a running, per-member count of required polls that member was eligible for but didn't participate in — pulled from the admin panel at any time. Reaching **three missed required votes** flags that member for the Adjacent-status review process. The system never changes anyone's status automatically; an admin always makes that call by hand after reviewing the flag.
+
+This count is derived only from *whether* a member participated, never from *how* they voted — so it can't reveal anyone's vote choice, only their attendance.
 
 ### What this guarantees
 
 | Guarantee | How |
 |---|---|
 | Only community members can vote | Ballot tokens are only issued to approved, logged-in members. |
-| One person, one vote | Each member can request only one ballot token per poll. |
+| One person, one vote | Each member can request only one ballot token per poll — reopening and changing that same ballot within the 30-minute window is an edit, not a second vote. |
 | Non-repudiation of participation | "Has this member voted?" is permanently and provably recorded — a member cannot later claim they didn't vote, nor can the organization falsely claim someone did. |
-| Vote secrecy | The vote-choice record contains no link back to who cast it — not even admins can see how a specific member voted. |
-| Tamper evidence | The chained/hashed vote log makes silent after-the-fact edits to results detectable. |
+| Vote secrecy | The vote-choice record (and any optional comment) contains no link back to who cast it — not even admins can see how a specific member voted. Members should still avoid writing anything personally identifying in a comment, since that's a human risk no system can filter out. |
+| Tamper evidence | The chained/hashed vote log makes silent after-the-fact edits to results detectable, including attempts to rewrite a member's vote history. |
+| Accidental duplicate polls can't happen | If a page hangs or an admin double-clicks "Create poll," the system recognizes the repeat and returns the poll that already exists instead of creating a second one. |

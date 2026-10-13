@@ -50,11 +50,38 @@ terminal** — copy the link from there to test the flow.
   tune via `SESSION_HOURS`) — a forged cookie value is rejected, logout
   actually invalidates the session. Kept short since the only real use
   case is logging in to cast one ballot, not staying signed in for weeks.
-- Admin opens a poll
+- Admin opens a poll — single-choice (incl. Yes/No) or ranked-choice, with
+  an optional description blurb and attached reference documents (drop
+  files into `backend/data/documents/`, pick them in the poll form), and
+  an optional `required` flag for the missed-vote count below
+- Poll eligibility is snapshotted into `poll_eligible_members` at creation
+  time, so a member joining or leaving later can't retroactively change
+  who that specific poll counted as eligible
 - Member requests a ballot (records participation — the non-repudiation
   step) and casts a vote using only an anonymous token
-- Double-voting is blocked
+- A cast vote can be revised for `BALLOT_EDIT_MINUTES` (default 30)
+  after the first submission — each revision appends a new row rather
+  than editing history, so the hash chain stays pure append-only; only
+  the latest row per ballot counts toward the tally, but every edit
+  stays in the log. A receipt hash reports whether it's still the
+  counted ("current") vote or was superseded by a later edit.
+- Optional free-text comment per ballot (length-capped) — stored only
+  against the anonymous ballot token, same as the choice itself, so it
+  carries the same anonymity guarantee (voters should still avoid
+  writing anything self-identifying in it)
+- Ranked-choice polls tally via instant-runoff, round by round; partial
+  rankings are allowed (a ballot doesn't have to rank every option)
+- Double-voting (a second *ballot token*) is blocked; changing your mind
+  with the *same* token inside the edit window is not double-voting
 - Vote tally + hash-chain tamper check
+- Admin missed-required-vote report (`GET /api/admin/participation/misses`)
+  — derived only from who was eligible vs. who participated, never touches
+  vote content. Feeds the eventual three-missed-vote → Adjacent-status
+  rule; today it's surfaced for manual admin review only, no automatic
+  status change happens.
+- Admin poll creation accepts an `Idempotency-Key` header so a retried or
+  double-clicked request replays the original response instead of
+  creating a second poll
 - The stub admin key is compared with `crypto.timingSafeEqual` to avoid
   a timing side-channel (still a stub — see below — just a safer one)
 - Check-ins can optionally include a region (Western/Central/Eastern) —
@@ -77,17 +104,26 @@ terminal** — copy the link from there to test the flow.
    volume for the SQLite file (+ Litestream for off-site backups);
    frontend → Cloudflare Pages, pointed at the deployed backend via
    `VITE_API_URL`.
-5. **Ranked-choice voting**: not built yet, by design — the `polls` table
-   already has a `ranked_choice` flag reserved for it. When you're ready,
-   the ballot payload becomes an ordered list instead of a single string,
-   and the tally function gets an instant-runoff variant. Nothing else
-   in the schema or auth flow needs to change.
+5. **Voting-page UX still needs to catch up to the backend.** The backend
+   fully supports ranked-choice ballots, editable/re-votable ballots, and
+   comments (see above), but `frontend/src/views/Polls.vue` still only
+   renders a single-page radio-button form per poll — no ranked-order
+   input, no "reopen and change your vote" affordance, and no persisted
+   ballot token, so a member can't actually revise a vote through the UI
+   yet even though the API allows it. Planned shape: a landing page
+   showing poll blurbs/documents + a "Start voting" button, leading to a
+   lobby where each poll opens as its own panel (click to open, click
+   away or the X to close), pre-filling the member's current choice from
+   `GET /api/polls/:id/my-ballot` using a ballot token persisted in
+   `localStorage` (so it survives a reload within the edit window).
 6. **Richer poll lifecycle** (Draft → Scheduled → Open → Closed →
-   Verified → Published) and a multi-step voting UI (confirm eligibility
-   → review → submit → confirmation) are reasonable future upgrades, not
-   yet built — current polls are just open/closed, and voting is a
-   single-page form.
-7. **Regional grouping for check-ins**: `region` is captured on check-in
+   Verified → Published) is a reasonable future upgrade, not yet built —
+   current polls are just open/closed.
+7. **Three-missed-required-vote → Adjacent status is not automated.**
+   `GET /api/admin/participation/misses` surfaces the count; an admin
+   still has to act on it manually. Automating the status transition
+   itself is a deliberate choice to defer, not an oversight.
+8. **Regional grouping for check-ins**: `region` is captured on check-in
    (see `checkins.region` in schema.sql) but nothing reads it yet — no
    filtering, no map grouping/coloring. There's a reference map graphic
    (Western/Central/Eastern regions) to build toward when this gets
@@ -101,14 +137,18 @@ backend/
     db.js              — opens the SQLite file, applies schema
     lib/tokens.js       — login, invite, and ballot tokens, hash chain
     lib/sessions.js      — signed session create/lookup/expire/destroy
-    lib/mailer.js          — email stub
-    routes/auth.js          — member magic-link login
-    routes/members.js        — apply / admin approve-deny
-    routes/invitations.js     — admin bulk email-invite + confirm flow
-    routes/checkins.js         — opt-in location + optional region
-    routes/polls.js              — poll creation, voting, tally, chain verify
-    routes/admin-auth.js          — PLACEHOLDER, replace with WebAuthn
-    server.js                       — wires it all together
+    lib/idempotency.js    — replay-safe admin writes via Idempotency-Key
+    lib/mailer.js           — email stub
+    routes/auth.js           — member magic-link login
+    routes/members.js         — apply / admin approve-deny
+    routes/invitations.js      — admin bulk email-invite + confirm flow
+    routes/checkins.js          — opt-in location + optional region
+    routes/documents.js          — reference-document folder listing/serving
+    routes/polls.js                — poll creation, voting (single/ranked,
+                                     editable ballots), IRV tally, chain
+                                     verify, missed-required-vote report
+    routes/admin-auth.js            — PLACEHOLDER, replace with WebAuthn
+    server.js                         — wires it all together
 frontend/
   src/
     views/                           — Home, Apply, Login, LoginVerify,

@@ -9,6 +9,7 @@ import checkinRoutes from "./routes/checkins.js";
 import pollRoutes from "./routes/polls.js";
 import invitationRoutes from "./routes/invitations.js";
 import documentRoutes from "./routes/documents.js";
+import devLoginRoutes from "./routes/dev-login.js";
 import { pruneExpiredSessions } from "./lib/sessions.js";
 
 const app = Fastify({ logger: true });
@@ -40,6 +41,11 @@ await app.register(checkinRoutes);
 await app.register(pollRoutes);
 await app.register(invitationRoutes);
 await app.register(documentRoutes);
+
+if (process.env.DEV_LOGIN_ENABLED === "true") {
+  app.log.warn("DEV_LOGIN_ENABLED=true — /api/dev/login is active. NEVER set this in a real deployment.");
+  await app.register(devLoginRoutes);
+}
 
 app.get("/api/health", async () => ({ ok: true }));
 
