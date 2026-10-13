@@ -1,17 +1,12 @@
 <template>
   <div class="card">
     <h2>Admin</h2>
-    <p>Use a registered security key to unlock admin actions, including invitations and email sends.</p>
-    <input v-model="email" type="email" placeholder="admin email" />
-    <button @click="login">Sign in with security key</button>
-    <button v-if="authenticated" style="margin-left:.5rem" @click="logout">Sign out</button>
-    <details style="margin-top:1rem">
-      <summary>Register an admin security key</summary>
-      <input v-model="name" placeholder="admin name" style="margin-top:.5rem" />
-      <input v-model="setupToken" placeholder="one-time setup token" style="margin-top:.5rem" />
-      <button style="margin-top:.5rem" @click="register">Register key</button>
-    </details>
-    <button v-if="authenticated" style="margin-left:.5rem" @click="loadApplicants">Load pending applicants</button>
+    <p style="color:#a33">
+      Stub auth only — this key input is a placeholder for the real FIDO2/YubiKey
+      login that should gate this whole page before go-live.
+    </p>
+    <input v-model="adminKey" placeholder="admin key" />
+    <button @click="loadApplicants">Load pending applicants</button>
     <p v-if="errorMessage" style="color:#a33;margin-top:.5rem">{{ errorMessage }}</p>
   </div>
 
@@ -92,14 +87,14 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
-import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
+import { ref, onMounted } from "vue";
 import { api } from "../api.js";
 
-const email = ref("");
-const name = ref("");
-const setupToken = ref("");
-const authenticated = ref(false);
+const adminKey = ref("");
+onMounted(() => {
+  const devKey = localStorage.getItem("devAdminKey");
+  if (devKey) adminKey.value = devKey;
+});
 const applicants = ref([]);
 const question = ref("");
 const description = ref("");
@@ -122,37 +117,17 @@ function removeOption(i) {
 }
 
 function friendlyError(err) {
-  errorMessage.value = err.message || "Something went wrong.";
-}
-async function register() {
-  errorMessage.value = "";
-  try {
-    const options = await api.adminRegisterOptions(email.value.trim(), name.value.trim(), setupToken.value);
-    const credential = await startRegistration({ optionsJSON: options });
-    await api.adminRegisterVerify(options.challengeId, credential, "admin security key");
-    errorMessage.value = "Key registered. Sign in above.";
-  } catch (err) { friendlyError(err); }
-}
-async function login() {
-  errorMessage.value = "";
-  try {
-    const options = await api.adminLoginOptions(email.value.trim());
-    const credential = await startAuthentication({ optionsJSON: options });
-    await api.adminLoginVerify(options.challengeId, credential);
-    authenticated.value = true;
-    await loadApplicants();
-  } catch (err) { friendlyError(err); }
-}
-async function logout() {
-  await api.adminLogout();
-  authenticated.value = false;
-  applicants.value = [];
+  // Same message the backend sends for a missing/wrong key — surface it
+  // plainly rather than letting it fall through as an unhandled rejection.
+  errorMessage.value = err.message === "admin auth required (stub)"
+    ? "Admin key missing or incorrect — check the field above."
+    : (err.message || "Something went wrong.");
 }
 
 async function loadApplicants() {
   errorMessage.value = "";
   try {
-    applicants.value = await api.adminApplicants();
+    applicants.value = await api.adminApplicants(adminKey.value);
   } catch (err) {
     friendlyError(err);
   }
@@ -160,7 +135,7 @@ async function loadApplicants() {
 async function approve(id) {
   errorMessage.value = "";
   try {
-    await api.adminApprove(id);
+    await api.adminApprove(adminKey.value, id);
     await loadApplicants();
   } catch (err) {
     friendlyError(err);
@@ -169,7 +144,7 @@ async function approve(id) {
 async function deny(id) {
   errorMessage.value = "";
   try {
-    await api.adminDeny(id);
+    await api.adminDeny(adminKey.value, id);
     await loadApplicants();
   } catch (err) {
     friendlyError(err);
@@ -183,7 +158,7 @@ async function sendInvitations() {
     .filter(Boolean);
   if (!emails.length) return;
   try {
-    const res = await api.adminSendInvitations(emails);
+    const res = await api.adminSendInvitations(adminKey.value, emails);
     inviteResults.value = res.results;
     invitesRaw.value = "";
     await loadInvitations();
@@ -194,7 +169,7 @@ async function sendInvitations() {
 async function loadInvitations() {
   errorMessage.value = "";
   try {
-    invitations.value = await api.adminInvitations();
+    invitations.value = await api.adminInvitations(adminKey.value);
   } catch (err) {
     friendlyError(err);
   }
@@ -202,7 +177,7 @@ async function loadInvitations() {
 async function loadDocuments() {
   errorMessage.value = "";
   try {
-    availableDocuments.value = await api.adminDocuments();
+    availableDocuments.value = await api.adminDocuments(adminKey.value);
   } catch (err) {
     friendlyError(err);
   }
@@ -220,6 +195,7 @@ async function createPoll() {
       return;
     }
     await api.adminCreatePoll(
+      adminKey.value,
       question.value.trim(),
       cleanOptions,
       description.value.trim(),

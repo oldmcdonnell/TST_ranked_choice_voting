@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { requireAdmin } from "./admin-auth.js";
+import { requireAdminStub } from "./admin-auth.js";
 import { getMemberFromSession } from "../lib/sessions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -26,7 +26,7 @@ const CONTENT_TYPES = {
 export default async function documentRoutes(app) {
   // Admin: list files currently sitting in the documents folder, to pick
   // from when attaching reference material to a poll.
-  app.get("/api/admin/documents", { preHandler: requireAdmin }, async () => {
+  app.get("/api/admin/documents", { preHandler: requireAdminStub }, async () => {
     return fs.readdirSync(DOCUMENTS_DIR).filter(name => !name.startsWith("."));
   });
 

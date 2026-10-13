@@ -15,9 +15,9 @@ going live.
 - One terminal for `backend`, one for `frontend`
 
 ## Environment
-- Copy `backend/.env.example` to `backend/.env`, set a private `ADMIN_SETUP_TOKEN`, and keep it only for key enrollment
+- Copy `backend/.env.example` to `backend/.env` and set `ADMIN_STUB_KEY` to a secret value for local testing
 - Also set `SESSION_SECRET` in `backend/.env` — the server refuses to start without it (see "What's already working" below)
-- Backend env values include `PORT`, `DB_PATH`, `SESSION_SECRET`, `SESSION_HOURS`, `ADMIN_SESSION_HOURS`, `ADMIN_SETUP_TOKEN`, `FRONTEND_URL`, `MAIL_FROM`, and WebAuthn settings (`RP_NAME`, `RP_ID`, `ORIGIN`)
+- Backend env values include `PORT`, `DB_PATH`, `SESSION_SECRET`, `SESSION_HOURS` (member login idle-expiry, default 4), `ADMIN_STUB_KEY`, `FRONTEND_URL`, `MAIL_FROM`, and WebAuthn-related placeholders (`RP_NAME`, `RP_ID`, `ORIGIN`)
 - Frontend uses `VITE_API_URL` to point at the backend; it defaults to `http://localhost:8787`
 
 ## Running it locally
@@ -25,7 +25,7 @@ going live.
 ```bash
 # backend
 cd backend
-cp .env.example .env        # then edit — set ADMIN_SETUP_TOKEN and SESSION_SECRET
+cp .env.example .env        # then edit — set ADMIN_STUB_KEY and SESSION_SECRET
 npm install
 npm run dev                 # http://localhost:8787
 
@@ -55,14 +55,19 @@ terminal** — copy the link from there to test the flow.
   step) and casts a vote using only an anonymous token
 - Double-voting is blocked
 - Vote tally + hash-chain tamper check
-- Admin actions use WebAuthn/FIDO2 security keys and short-lived signed
-   admin sessions. Invitations, approvals, poll management, document access,
-   and all email-triggering actions share this gate.
+- The stub admin key is compared with `crypto.timingSafeEqual` to avoid
+  a timing side-channel (still a stub — see below — just a safer one)
 - Check-ins can optionally include a region (Western/Central/Eastern) —
   captured now, not yet used for any filtering or grouping (see below)
 
 ## Not done yet — do before real go-live
-1. **Real email sending.** `src/lib/mailer.js` just logs to console.
+1. **Admin auth is still a placeholder**, despite the timing-safe compare
+   above. `src/routes/admin-auth.js` checks a single shared passcode
+   (`ADMIN_STUB_KEY`). Replace with real WebAuthn/FIDO2 using
+   `@simplewebauthn/server` — the `admin_credentials` table in
+   `schema.sql` already has the right shape for it. This is the most
+   important thing to fix before this is usable for real.
+2. **Real email sending.** `src/lib/mailer.js` just logs to console.
    Swap in a real provider (Resend, Postmark, SES) — the function
    signature won't need to change anywhere else.
 3. **CSRF protection** and **secure cookie flags** (`Secure`, proper

@@ -88,21 +88,6 @@ CREATE TABLE IF NOT EXISTS admin_credentials (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS admin_sessions (
-  id TEXT PRIMARY KEY,
-  admin_id TEXT NOT NULL REFERENCES admins(id),
-  expires_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS webauthn_challenges (
-  id TEXT PRIMARY KEY,
-  admin_id TEXT REFERENCES admins(id),
-  email TEXT,
-  purpose TEXT NOT NULL,
-  challenge TEXT NOT NULL,
-  expires_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS checkins (
   member_id TEXT PRIMARY KEY REFERENCES members(id),
   lat REAL,

@@ -1,7 +1,7 @@
 import { db } from "../db.js";
 import { newId, issueLoginToken } from "../lib/tokens.js";
 import { sendMail } from "../lib/mailer.js";
-import { requireAdmin } from "./admin-auth.js";
+import { requireAdminStub } from "./admin-auth.js";
 
 export default async function memberRoutes(app) {
   // Public (but unlisted-URL) application form
@@ -20,12 +20,12 @@ export default async function memberRoutes(app) {
   });
 
   // Admin: view pending applications
-  app.get("/api/admin/applicants", { preHandler: requireAdmin }, async () => {
+  app.get("/api/admin/applicants", { preHandler: requireAdminStub }, async () => {
     return db.prepare("SELECT * FROM applicants WHERE status = 'pending' ORDER BY created_at ASC").all();
   });
 
   // Admin: approve → creates the member account + emails an activation link
-  app.post("/api/admin/applicants/:id/approve", { preHandler: requireAdmin }, async (req, reply) => {
+  app.post("/api/admin/applicants/:id/approve", { preHandler: requireAdminStub }, async (req, reply) => {
     const applicant = db.prepare("SELECT * FROM applicants WHERE id = ?").get(req.params.id);
     if (!applicant || applicant.status !== "pending") {
       return reply.code(404).send({ error: "not found or already decided" });
@@ -47,7 +47,7 @@ export default async function memberRoutes(app) {
   });
 
   // Admin: deny — applicant is not notified why
-  app.post("/api/admin/applicants/:id/deny", { preHandler: requireAdmin }, async (req, reply) => {
+  app.post("/api/admin/applicants/:id/deny", { preHandler: requireAdminStub }, async (req, reply) => {
     const result = db.prepare(
       "UPDATE applicants SET status = 'denied', decided_at = datetime('now') WHERE id = ? AND status = 'pending'"
     ).run(req.params.id);
