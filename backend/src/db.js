@@ -4,7 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = process.env.DB_PATH || "./data/tstky.sqlite";
+// Resolve against the backend root (one level up from src/), not the
+// process's CWD — otherwise a relative DB_PATH silently lands wherever
+// the process happened to be launched from (e.g. a deploy platform's
+// start command), not next to this project.
+const dbPath = path.resolve(path.join(__dirname, ".."), process.env.DB_PATH || "./data/tstky.sqlite");
 
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 

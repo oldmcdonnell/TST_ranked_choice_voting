@@ -2,7 +2,7 @@ import { db } from "../db.js";
 import { newId, issueInviteToken, consumeInviteToken } from "../lib/tokens.js";
 import { sendMail } from "../lib/mailer.js";
 import { requireAdminStub } from "./admin-auth.js";
-import { createSession } from "../lib/sessions.js";
+import { createSession, sessionCookieOptions } from "../lib/sessions.js";
 
 const INVITE_TTL_MINUTES = 60 * 24 * 30; // 30 days to confirm
 
@@ -90,13 +90,7 @@ export default async function invitationRoutes(app) {
     ).run(invitation.id);
 
     const session = createSession(member.id);
-    reply.setCookie("sid", session.id, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      signed: true,
-      expires: new Date(session.expiresAt),
-    });
+    reply.setCookie("sid", session.id, sessionCookieOptions(session.expiresAt));
 
     return { ok: true, memberId: member.id };
   });

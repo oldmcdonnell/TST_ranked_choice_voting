@@ -1,6 +1,6 @@
 import { db } from "../db.js";
 import { newId } from "../lib/tokens.js";
-import { createSession } from "../lib/sessions.js";
+import { createSession, sessionCookieOptions } from "../lib/sessions.js";
 
 // Local-only shortcut for exercising the app without the real invite-email
 // or admin-key dance. Only ever registered when DEV_LOGIN_ENABLED=true (see
@@ -27,13 +27,7 @@ export default async function devLoginRoutes(app) {
       }
 
       const session = createSession(member.id);
-      reply.setCookie("sid", session.id, {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        signed: true,
-        expires: new Date(session.expiresAt),
-      });
+      reply.setCookie("sid", session.id, sessionCookieOptions(session.expiresAt));
       return { ok: true, role: "member" };
     }
 

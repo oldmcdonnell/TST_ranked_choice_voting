@@ -1,7 +1,7 @@
 import { db } from "../db.js";
 import { issueLoginToken, consumeLoginToken } from "../lib/tokens.js";
 import { sendMail } from "../lib/mailer.js";
-import { createSession, destroySession } from "../lib/sessions.js";
+import { createSession, destroySession, sessionCookieOptions } from "../lib/sessions.js";
 
 export default async function authRoutes(app) {
   // Member requests a login link
@@ -30,13 +30,7 @@ export default async function authRoutes(app) {
     if (!memberId) return reply.code(400).send({ error: "invalid or expired link" });
 
     const session = createSession(memberId);
-    reply.setCookie("sid", session.id, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      signed: true, // requires COOKIE_SECRET — see server.js
-      expires: new Date(session.expiresAt),
-    });
+    reply.setCookie("sid", session.id, sessionCookieOptions(session.expiresAt));
     return { ok: true };
   });
 

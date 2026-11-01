@@ -32,6 +32,24 @@ export function getMemberFromSession(sessionId) {
   return row.member_id;
 }
 
+// Shared cookie options for the "sid" session cookie. Production deploys
+// put the frontend and backend on different domains (e.g. Cloudflare
+// Pages + Fly.io), so the cookie needs SameSite=None + Secure there or
+// the browser won't attach it to cross-site API requests at all; plain
+// "lax" is kept for local dev, where Secure would require https and
+// break cookies on http://localhost.
+export function sessionCookieOptions(expiresAt) {
+  const production = process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    sameSite: production ? "none" : "lax",
+    secure: production,
+    path: "/",
+    signed: true,
+    expires: new Date(expiresAt),
+  };
+}
+
 export function destroySession(sessionId) {
   if (sessionId) db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
 }
