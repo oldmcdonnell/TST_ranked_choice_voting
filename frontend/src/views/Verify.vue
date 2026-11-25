@@ -8,8 +8,14 @@
     <button style="margin-top:.5rem" @click="checkReceipt">Check receipt</button>
     <div v-if="receiptResult" style="margin-top:.75rem">
       <p v-if="receiptResult.found">
-        ✓ Found — this vote was for <strong>{{ receiptResult.choice }}</strong>,
-        cast at {{ receiptResult.castAt }}.
+        ✓ Found — this vote was for <strong>{{ formatChoice(receiptResult.choice) }}</strong>,
+        cast at {{ formatDbTime(receiptResult.castAt) }}.
+        <br />
+        <span v-if="receiptResult.current">This is the ballot's current (counted) answer.</span>
+        <span v-else style="color:#a33">
+          This answer was later changed within the edit window — a newer receipt for the same
+          ballot is the one that counts.
+        </span>
         <br />Chain integrity: {{ receiptResult.chain.valid ? "intact ✓" : "BROKEN — contact an admin" }}
       </p>
       <p v-else>Not found for this poll — double check the poll ID and hash.</p>
@@ -24,15 +30,15 @@
     <input v-model="resultsPollId" placeholder="Poll ID" style="width:100%" />
     <button style="margin-top:.5rem" @click="loadResults">Load public results</button>
     <div v-if="publicResults" style="margin-top:.75rem">
-      <p><strong>{{ publicResults.question }}</strong> — {{ publicResults.totalVotes }} total votes</p>
-      <p>Tally: {{ JSON.stringify(publicResults.counts) }}</p>
-      <p>Chain integrity: {{ publicResults.chain.valid ? "intact ✓" : "BROKEN — contact an admin" }}</p>
+      <p><strong>{{ publicResults.question }}</strong></p>
+      <PollResults :results="publicResults" />
+      <h4 style="margin:1rem 0 .25rem">Ledger</h4>
       <table style="width:100%;margin-top:.5rem">
         <tr><th style="text-align:left">Hash</th><th style="text-align:left">Choice</th><th style="text-align:left">Cast at</th></tr>
         <tr v-for="v in publicResults.ledger" :key="v.hash">
           <td><code style="font-size:.8em">{{ v.hash }}</code></td>
-          <td>{{ v.choice }}</td>
-          <td>{{ v.castAt }}</td>
+          <td>{{ formatChoice(v.choice) }}</td>
+          <td>{{ formatDbTime(v.castAt) }}</td>
         </tr>
       </table>
     </div>
@@ -43,6 +49,19 @@
 <script setup>
 import { ref } from "vue";
 import { api } from "../api.js";
+import PollResults from "../components/PollResults.vue";
+
+// Ranked ballots come back as arrays (["B", "A"]) — show them as an order.
+function formatChoice(choice) {
+  return Array.isArray(choice) ? choice.join(" → ") : choice;
+}
+// Vote timestamps are SQLite UTC text ("YYYY-MM-DD HH:MM:SS") — mark them
+// as UTC before converting, or the browser reads them as local time.
+function formatDbTime(s) {
+  if (!s) return "";
+  const iso = /^\d{4}-\d{2}-\d{2} /.test(s) ? s.replace(" ", "T") + "Z" : s;
+  return new Date(iso).toLocaleString();
+}
 
 const pollId = ref("");
 const hash = ref("");

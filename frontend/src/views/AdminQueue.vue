@@ -21,6 +21,18 @@
   <div class="card">
     <h3>Invite congregation to vote</h3>
     <p>Paste emails (one per line, or comma-separated). Each person confirms their own email before they can vote.</p>
+    <label style="display:block;margin-bottom:.5rem">
+      Invite for vote:
+      <select v-model="invitePollId" style="margin-left:.5rem">
+        <option value="">— general membership (link valid 30 days) —</option>
+        <option v-for="p in invitablePolls" :key="p.id" :value="p.id">
+          {{ p.question }} (closes {{ formatTime(p.closesAt) }})
+        </option>
+      </select>
+    </label>
+    <p v-if="invitePollId" style="font-size:.85em;color:#666;margin:.25rem 0 .5rem">
+      Invite links will stop working when this poll closes, and the email names the poll and its voting window.
+    </p>
     <textarea v-model="invitesRaw" rows="5" style="width:100%" placeholder="jane@example.com&#10;john@example.com"></textarea>
     <button style="margin-top:.5rem" @click="sendInvitations">Send invitations</button>
     <div v-if="inviteResults.length" style="margin-top:.75rem">
@@ -35,6 +47,29 @@
         <td>{{ inv.invited_at }}</td>
       </tr>
     </table>
+  </div>
+
+  <div class="card">
+    <h3>Polls</h3>
+    <button @click="loadPolls">Refresh poll list</button>
+    <p v-if="!adminPolls.length" style="font-size:.9em;color:#666">No polls loaded yet.</p>
+    <div v-for="p in adminPolls" :key="p.id" style="border-top:1px solid #eee;margin-top:.75rem;padding-top:.75rem">
+      <div style="display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap">
+        <strong>{{ p.question }}</strong>
+        <span :style="{ color: phaseColor(p.phase), fontWeight: 600, textTransform: 'uppercase', fontSize: '.8em' }">{{ p.phase }}</span>
+      </div>
+      <div style="font-size:.85em;color:#666">
+        {{ p.votingMethod === "ranked" ? "Ranked choice" : "Single choice" }}{{ p.required ? " · required" : "" }}
+        · {{ p.participants }} {{ p.participants === 1 ? "member has" : "members have" }} voted
+        <br />Opens {{ formatTime(p.opensAt) || "immediately" }} · closes {{ formatTime(p.closesAt) || "when closed manually" }}
+        <br />Poll ID: <code>{{ p.id }}</code>
+      </div>
+      <div style="margin-top:.5rem">
+        <button @click="toggleResults(p)">{{ pollResults[p.id] ? "Hide results" : "View results" }}</button>
+        <button v-if="p.phase !== 'closed'" style="margin-left:.5rem" @click="closePoll(p)">Close poll now</button>
+      </div>
+      <PollResults v-if="pollResults[p.id]" :results="pollResults[p.id]" style="margin-top:.5rem" />
+    </div>
   </div>
 
   <div class="card">
@@ -58,6 +93,19 @@
     <label style="display:block;margin-top:.5rem">
       <input type="checkbox" v-model="required" /> Required (counts toward the missed-vote rule)
     </label>
+
+    <div style="margin-top:.5rem;display:flex;gap:1rem;flex-wrap:wrap">
+      <label>
+        Voting opens
+        <input type="datetime-local" v-model="opensAt" style="display:block" />
+        <span style="font-size:.8em;color:#666">Leave blank to open immediately</span>
+      </label>
+      <label>
+        Voting closes (required)
+        <input type="datetime-local" v-model="closesAt" style="display:block" />
+        <span style="font-size:.8em;color:#666">The poll closes itself at this time</span>
+      </label>
+    </div>
 
     <div v-for="(opt, i) in options" :key="i" style="margin-top:.5rem;display:flex;gap:.5rem">
       <input v-model="options[i]" :placeholder="`Option ${i + 1}`" style="flex:1" />
@@ -92,13 +140,17 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, reactive, computed, onMounted } from "vue";
 import { api } from "../api.js";
+import PollResults from "../components/PollResults.vue";
 
 const adminKey = ref("");
 onMounted(() => {
   const devKey = localStorage.getItem("devAdminKey");
-  if (devKey) adminKey.value = devKey;
+  if (devKey) {
+    adminKey.value = devKey;
+    loadPolls();
+  }
 });
 const applicants = ref([]);
 const question = ref("");
@@ -112,6 +164,55 @@ const invitesRaw = ref("");
 const inviteResults = ref([]);
 const invitations = ref([]);
 const errorMessage = ref("");
+const opensAt = ref("");   // datetime-local string, in the admin's own timezone
+const closesAt = ref("");
+const adminPolls = ref([]);
+const pollResults = reactive({}); // poll id → results object, when expanded
+const invitePollId = ref("");
+const invitablePolls = computed(() => adminPolls.value.filter(p => p.phase !== "closed" && p.closesAt));
+
+function formatTime(iso) {
+  return iso ? new Date(iso).toLocaleString() : "";
+}
+function phaseColor(phase) {
+  return phase === "open" ? "#2a7a2a" : phase === "upcoming" ? "#a66b00" : "#666";
+}
+// datetime-local gives "YYYY-MM-DDTHH:MM" with no zone; new Date() reads it
+// as the admin's local time, and toISOString() sends it to the backend as UTC.
+function toIso(local) {
+  return local ? new Date(local).toISOString() : undefined;
+}
+
+async function loadPolls() {
+  errorMessage.value = "";
+  try {
+    adminPolls.value = await api.adminPolls(adminKey.value);
+  } catch (err) {
+    friendlyError(err);
+  }
+}
+async function toggleResults(p) {
+  if (pollResults[p.id]) {
+    delete pollResults[p.id];
+    return;
+  }
+  errorMessage.value = "";
+  try {
+    pollResults[p.id] = await api.adminPollResults(adminKey.value, p.id);
+  } catch (err) {
+    friendlyError(err);
+  }
+}
+async function closePoll(p) {
+  if (!confirm(`Close "${p.question}" now? Members won't be able to vote or change their votes after this.`)) return;
+  errorMessage.value = "";
+  try {
+    pollResults[p.id] = await api.adminClosePoll(adminKey.value, p.id);
+    await loadPolls();
+  } catch (err) {
+    friendlyError(err);
+  }
+}
 
 // One Idempotency-Key per poll draft: reused for every click/retry until the
 // poll is actually created, then replaced so the next poll gets a fresh one.
@@ -173,7 +274,7 @@ async function sendInvitations() {
     .filter(Boolean);
   if (!emails.length) return;
   try {
-    const res = await api.adminSendInvitations(adminKey.value, emails);
+    const res = await api.adminSendInvitations(adminKey.value, emails, invitePollId.value);
     inviteResults.value = res.results;
     invitesRaw.value = "";
     await loadInvitations();
@@ -211,6 +312,10 @@ async function createPoll() {
       errorMessage.value = "Enter at least 2 non-empty options.";
       return;
     }
+    if (!closesAt.value) {
+      errorMessage.value = "Set when voting closes.";
+      return;
+    }
     await api.adminCreatePoll(
       adminKey.value,
       pollIdempotencyKey.value,
@@ -219,7 +324,9 @@ async function createPoll() {
       description.value.trim(),
       selectedDocuments.value,
       votingMethod.value,
-      required.value
+      required.value,
+      toIso(opensAt.value),
+      toIso(closesAt.value)
     );
     question.value = "";
     description.value = "";
@@ -227,6 +334,9 @@ async function createPoll() {
     selectedDocuments.value = [];
     votingMethod.value = "single";
     required.value = false;
+    opensAt.value = "";
+    closesAt.value = "";
+    await loadPolls();
     // Poll exists now — the next draft needs its own key
     pollIdempotencyKey.value = newPollKey();
     alert("Poll created.");

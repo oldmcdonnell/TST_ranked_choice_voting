@@ -106,9 +106,10 @@ CREATE TABLE IF NOT EXISTS polls (
   documents_json TEXT NOT NULL DEFAULT '[]', -- JSON array of filenames from data/documents/
   ranked_choice INTEGER NOT NULL DEFAULT 0, -- 0 = single choice (incl. Yes/No), 1 = ranked
   required INTEGER NOT NULL DEFAULT 0, -- counts toward the missed-required-vote rule
-  status TEXT NOT NULL DEFAULT 'open', -- open | closed
+  status TEXT NOT NULL DEFAULT 'open', -- open | closed (flips to closed automatically once closes_at passes)
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  closes_at TEXT
+  opens_at TEXT, -- ISO-8601 UTC; ballots can't be requested before this (NULL = open immediately)
+  closes_at TEXT -- ISO-8601 UTC; required for new polls, voting stops at this moment
 );
 
 -- Proves a member participated. This is the non-repudiation record.

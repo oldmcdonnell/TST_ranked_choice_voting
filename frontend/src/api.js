@@ -12,13 +12,15 @@ export const BASE = import.meta.env.VITE_API_URL || "http://localhost:8787";
       callers can catch it and show it to the user.
     - On success, returns the parsed JSON response. */
 async function request(path, opts = {}) {
+  // ...opts goes FIRST so its own `headers` (e.g. x-admin-key) can't
+  // overwrite the merged headers below and drop the JSON Content-Type.
   const res = await fetch(BASE + path, {
+    ...opts,
     credentials: "include",
     headers: {
       ...(opts.body ? { "Content-Type": "application/json" } : {}),
       ...(opts.headers || {}),
     },
-    ...opts,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
@@ -76,6 +78,18 @@ export const api = {
       who voted which way. */
   verifyChain: (pollId) => request(`/api/polls/${pollId}/verify`),
 
+  /*- Connects to GET /api/polls/:id/verify-receipt. Public, no login.
+      Checks a saved receipt hash against the poll: returns whether it was
+      found, the choice it recorded, whether it's still the current vote
+      (or was superseded by an edit), and the chain-integrity check. */
+  verifyReceipt: (pollId, hash) =>
+    request(`/api/polls/${pollId}/verify-receipt?hash=${encodeURIComponent(hash)}`),
+
+  /*- Connects to GET /api/polls/:id/public-results. Public, no login, but
+      only once the poll is closed (403 while open). Returns the tally plus
+      the full recount ledger of final votes (hash + choice, never who). */
+  publicResults: (pollId) => request(`/api/polls/${pollId}/public-results`),
+
   /*- Connects to POST /api/polls/:id/email-receipt. Requires login.
       Checks the receipt hash is real for this poll, then emails it to the
       logged-in member. Writes nothing to the database, so no member-to-vote
@@ -117,22 +131,38 @@ export const api = {
   /*- Connects to POST /api/admin/polls (routes/polls.js). Creates a new poll
       (single-choice or ranked, optionally "required") and snapshots which
       members are eligible to vote in it right now.
+      `opensAt` / `closesAt` are ISO timestamps for the voting window
+      (closesAt required; opensAt blank = open now). Ballots can only be
+      requested and cast inside that window, and the poll closes itself
+      automatically at closesAt.
       `idempotencyKey` is sent as the Idempotency-Key header. The caller
       (AdminQueue.vue) keeps the SAME key for one poll draft until it is
       created, so a double-click or retry replays the first response instead
       of creating a second poll (backend: lib/idempotency.js). */
-  adminCreatePoll: (adminKey, idempotencyKey, question, options, description, documents, votingMethod, required) =>
+  adminCreatePoll: (adminKey, idempotencyKey, question, options, description, documents, votingMethod, required, opensAt, closesAt) =>
     request("/api/admin/polls", {
       method: "POST",
       headers: {
         "x-admin-key": adminKey,
         "Idempotency-Key": idempotencyKey,
       },
-      body: JSON.stringify({ question, options, description, documents, votingMethod, required }),
+      body: JSON.stringify({ question, options, description, documents, votingMethod, required, opensAt, closesAt }),
     }),
 
+  /*- Connects to GET /api/admin/polls (routes/polls.js). Every poll, any
+      status, with its phase (upcoming / open / closed), voting window and
+      how many members have taken a ballot. */
+  adminPolls: (adminKey) => request("/api/admin/polls", { headers: { "x-admin-key": adminKey } }),
+
+  /*- Connects to GET /api/admin/polls/:id/results (routes/polls.js). The
+      tally so far (or final, once closed). Admin-only so live counts aren't
+      public while voting is open. */
+  adminPollResults: (adminKey, id) =>
+    request(`/api/admin/polls/${id}/results`, { headers: { "x-admin-key": adminKey } }),
+
   /*- Connects to POST /api/admin/polls/:id/close (routes/polls.js). Closes
-      voting on the poll and returns the final tally. */
+      voting early and returns the final tally. (Polls also close on their
+      own once closesAt passes.) */
   adminClosePoll: (adminKey, id) =>
     request(`/api/admin/polls/${id}/close`, { method: "POST", headers: { "x-admin-key": adminKey } }),
 
@@ -146,12 +176,15 @@ export const api = {
 
   /*- Connects to POST /api/admin/invitations. Admin sends invite emails to a
       batch of addresses. Safe to re-run: already-confirmed people are
-      skipped, and pending ones get a fresh 30-day link. */
-  adminSendInvitations: (adminKey, emails) =>
+      skipped, and pending ones get a fresh link.
+      Pass a `pollId` to invite people for that vote: the link then expires
+      when the poll closes (instead of after 30 days) and the email names
+      the poll and its voting window. */
+  adminSendInvitations: (adminKey, emails, pollId) =>
     request("/api/admin/invitations", {
       method: "POST",
       headers: { "x-admin-key": adminKey },
-      body: JSON.stringify({ emails }),
+      body: JSON.stringify({ emails, pollId: pollId || undefined }),
     }),
 
   /*- Connects to GET /api/admin/invitations. Shows whether each invite is

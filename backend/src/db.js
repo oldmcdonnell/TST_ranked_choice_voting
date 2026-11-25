@@ -31,6 +31,9 @@ if (!pollColumns.includes("documents_json")) {
 if (!pollColumns.includes("required")) {
   db.exec("ALTER TABLE polls ADD COLUMN required INTEGER NOT NULL DEFAULT 0");
 }
+if (!pollColumns.includes("opens_at")) {
+  db.exec("ALTER TABLE polls ADD COLUMN opens_at TEXT");
+}
 
 const voteColumns = db.prepare("PRAGMA table_info(votes)").all().map(c => c.name);
 if (!voteColumns.includes("comment")) {

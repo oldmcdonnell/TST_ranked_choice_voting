@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 import crypto from "node:crypto";
 import { db } from "../db.js";
+import { parseDbTime } from "./time.js";
 
 export const newId = () => nanoid();
 
@@ -65,7 +66,9 @@ export function getEditableBallotToken(token, pollId, editWindowMinutes) {
     .prepare("SELECT * FROM ballot_tokens WHERE token = ? AND poll_id = ?")
     .get(token, pollId);
   if (!row) return null;
-  const deadline = new Date(row.issued_at).getTime() + editWindowMinutes * 60_000;
+  // issued_at is SQLite UTC text — parseDbTime, not new Date(), or the
+  // window shifts by the server's timezone offset.
+  const deadline = parseDbTime(row.issued_at).getTime() + editWindowMinutes * 60_000;
   if (Date.now() > deadline) return null;
   return row;
 }
@@ -96,10 +99,15 @@ function votePayload({ id, pollId, choice, comment, ballotToken, prevHash }) {
   return JSON.stringify(payload);
 }
 
+// Ordering note: every vote query orders by SQLite's implicit `rowid`
+// (insertion order), NOT created_at — created_at only has 1-second
+// resolution and the tie-break `id` is a random nanoid, so two votes in the
+// same second would otherwise come back in random order (wrong "latest"
+// vote per ballot, and a falsely BROKEN chain).
 export function appendVote(pollId, choice, comment = null, ballotToken = null) {
   const last = db
     .prepare(
-      "SELECT hash FROM votes WHERE poll_id = ? ORDER BY created_at DESC, id DESC LIMIT 1"
+      "SELECT hash FROM votes WHERE poll_id = ? ORDER BY rowid DESC LIMIT 1"
     )
     .get(pollId);
   const prevHash = last ? last.hash : "genesis";
@@ -120,7 +128,7 @@ export function appendVote(pollId, choice, comment = null, ballotToken = null) {
 export function verifyChain(pollId) {
   const rows = db
     .prepare(
-      "SELECT id, choice_json, comment, ballot_token, prev_hash, hash FROM votes WHERE poll_id = ? ORDER BY created_at ASC, id ASC"
+      "SELECT id, choice_json, comment, ballot_token, prev_hash, hash FROM votes WHERE poll_id = ? ORDER BY rowid ASC"
     )
     .all(pollId);
 

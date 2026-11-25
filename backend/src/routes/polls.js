@@ -11,6 +11,7 @@ import { requireAdminStub } from "./admin-auth.js";
 import { getMemberFromSession } from "../lib/sessions.js";
 import { sendMail } from "../lib/mailer.js";
 import { withIdempotency } from "../lib/idempotency.js";
+import { parseDbTime, nowIso } from "../lib/time.js";
 
 // How long after a member's first vote they can still reopen the ballot
 // and change their choice. Fixed from first vote, not reset per edit.
@@ -21,8 +22,77 @@ function currentMember(req) {
   return getMemberFromSession(sessionId);
 }
 
-function editableUntilFor(tokenRow) {
-  return new Date(new Date(tokenRow.issued_at).getTime() + BALLOT_EDIT_MINUTES * 60_000).toISOString();
+// Any poll whose closes_at has passed is flipped to status='closed' in the
+// DB, so every other check (voting, public results, missed-vote counting)
+// can trust `status` alone. Called before each poll route runs (see the
+// onRequest hook below) and from invitations.js. closes_at is always stored
+// as ISO UTC, so a plain string comparison against an ISO "now" is correct.
+export function autoClosePastDuePolls() {
+  db.prepare(
+    "UPDATE polls SET status = 'closed' WHERE status = 'open' AND closes_at IS NOT NULL AND closes_at <= ?"
+  ).run(nowIso());
+}
+
+// Where a poll is in its lifecycle right now:
+//   upcoming — created, but opens_at hasn't arrived (no ballots yet)
+//   open     — inside the voting window
+//   closed   — closed by an admin, or closes_at has passed
+export function pollPhase(poll) {
+  const now = Date.now();
+  const closesAt = parseDbTime(poll.closes_at);
+  if (poll.status === "closed" || (closesAt && now >= closesAt.getTime())) return "closed";
+  const opensAt = parseDbTime(poll.opens_at);
+  if (opensAt && now < opensAt.getTime()) return "upcoming";
+  return "open";
+}
+
+// Rejects a ballot/vote request outside the poll's voting window. Returns
+// true if it already sent an error reply.
+function rejectIfNotVotable(poll, reply) {
+  if (!poll) {
+    reply.code(404).send({ error: "poll not found" });
+    return true;
+  }
+  const phase = pollPhase(poll);
+  if (phase === "upcoming") {
+    reply.code(403).send({ error: `voting hasn't opened yet — opens ${poll.opens_at}` });
+    return true;
+  }
+  if (phase === "closed") {
+    reply.code(403).send({ error: "voting on this poll has closed" });
+    return true;
+  }
+  return false;
+}
+
+// End of a ballot's edit window: BALLOT_EDIT_MINUTES after the ballot was
+// issued, but never past the poll's own close time. issued_at is SQLite
+// UTC text, so it must go through parseDbTime (plain new Date() reads it as
+// local time and shifts the window by the server's UTC offset).
+function editDeadlineMs(tokenRow, poll) {
+  const deadline = parseDbTime(tokenRow.issued_at).getTime() + BALLOT_EDIT_MINUTES * 60_000;
+  const closesAt = parseDbTime(poll.closes_at);
+  return closesAt ? Math.min(deadline, closesAt.getTime()) : deadline;
+}
+
+function editableUntilFor(tokenRow, poll) {
+  return new Date(editDeadlineMs(tokenRow, poll)).toISOString();
+}
+
+function publicPoll(r) {
+  return {
+    id: r.id,
+    question: r.question,
+    description: r.description,
+    options: JSON.parse(r.options_json),
+    documents: JSON.parse(r.documents_json),
+    votingMethod: r.ranked_choice ? "ranked" : "single",
+    required: !!r.required,
+    status: r.status,
+    phase: pollPhase(r),
+    opensAt: r.opens_at,
+    closesAt: r.closes_at,
+  };
 }
 
 // Each edit within the window appends a new vote row rather than mutating
@@ -33,7 +103,7 @@ function editableUntilFor(tokenRow) {
 function latestVotesByToken(pollId) {
   const rows = db
     .prepare(
-      "SELECT id, choice_json, comment, ballot_token, hash, created_at FROM votes WHERE poll_id = ? ORDER BY created_at ASC, id ASC"
+      "SELECT id, choice_json, comment, ballot_token, hash, created_at FROM votes WHERE poll_id = ? ORDER BY rowid ASC"
     )
     .all(pollId);
   const latestByKey = new Map();
@@ -68,8 +138,11 @@ function runIRV(ballots, options) {
 
     const leader = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
     if (activeCount === 0) {
+      // No ballots at all (or all exhausted) — there is no winner. Without
+      // this return, the fall-through below would hand it to whichever
+      // option happens to be listed first.
       rounds.push({ counts, activeBallots: 0 });
-      break;
+      return { winner: null, rounds };
     }
     if (leader[1] > activeCount / 2) {
       rounds.push({ counts, activeBallots: activeCount });
@@ -83,7 +156,10 @@ function runIRV(ballots, options) {
     for (const c of remaining) {
       if (counts[c] < counts[eliminated]) eliminated = c;
     }
-    rounds.push({ counts, activeBallots: activeCount, eliminated });
+    // Surface ties for last place so the results show an admin that the
+    // elimination was decided by option order, not by votes.
+    const tiedForLast = remaining.filter(c => counts[c] === counts[eliminated]);
+    rounds.push({ counts, activeBallots: activeCount, eliminated, ...(tiedForLast.length > 1 ? { tiedForLast } : {}) });
     remaining = remaining.filter(c => c !== eliminated);
   }
 
@@ -92,13 +168,14 @@ function runIRV(ballots, options) {
 
 function computeResults(pollId) {
   const poll = db.prepare("SELECT * FROM polls WHERE id = ?").get(pollId);
+  if (!poll) return null;
   const finalVotes = latestVotesByToken(pollId);
 
   if (poll.ranked_choice) {
     const options = JSON.parse(poll.options_json);
     const ballots = finalVotes.map(v => JSON.parse(v.choice_json));
     const { winner, rounds } = runIRV(ballots, options);
-    return { pollId, method: "ranked", totalVotes: finalVotes.length, winner, rounds, chain: verifyChain(pollId) };
+    return { pollId, method: "ranked", options, totalVotes: finalVotes.length, winner, rounds, chain: verifyChain(pollId) };
   }
 
   const counts = {};
@@ -110,13 +187,18 @@ function computeResults(pollId) {
 }
 
 export default async function pollRoutes(app) {
+  // Scoped to this plugin's routes only (Fastify encapsulation).
+  app.addHook("onRequest", async () => {
+    autoClosePastDuePolls();
+  });
+
   // Admin: open a new poll — single-choice (incl. Yes/No) or ranked-choice,
   // optionally marked "required" for the missed-vote count. Snapshots the
   // currently-active membership into poll_eligible_members in the same
   // transaction, so later joins/departures can't change who this poll
   // counts as eligible.
   app.post("/api/admin/polls", { preHandler: requireAdminStub }, async (req, reply) => {
-    const { question, description, options, documents, closesAt, votingMethod, required } = req.body || {};
+    const { question, description, options, documents, opensAt, closesAt, votingMethod, required } = req.body || {};
     if (!question || !Array.isArray(options) || options.length < 2) {
       return reply.code(400).send({ error: "question and at least 2 options required" });
     }
@@ -128,6 +210,19 @@ export default async function pollRoutes(app) {
     }
     const rankedChoice = votingMethod === "ranked" ? 1 : 0;
 
+    // Voting window. closesAt is required; opensAt defaults to "now".
+    // Stored as ISO UTC so autoClosePastDuePolls' string compare is valid.
+    const opens = opensAt ? new Date(opensAt) : new Date();
+    const closes = closesAt ? new Date(closesAt) : null;
+    if (Number.isNaN(opens.getTime())) {
+      return reply.code(400).send({ error: "opensAt is not a valid date/time" });
+    }
+    if (!closes || Number.isNaN(closes.getTime())) {
+      return reply.code(400).send({ error: "closesAt (a valid date/time) is required" });
+    }
+    if (closes <= opens) return reply.code(400).send({ error: "closesAt must be after opensAt" });
+    if (closes.getTime() <= Date.now()) return reply.code(400).send({ error: "closesAt must be in the future" });
+
     // A retried/double-clicked "create poll" request replays the same
     // response instead of opening a second poll — pass an Idempotency-Key
     // header from the client to opt in.
@@ -135,9 +230,9 @@ export default async function pollRoutes(app) {
       const id = newId();
       db.transaction(() => {
         db.prepare(
-          `INSERT INTO polls (id, question, description, options_json, documents_json, ranked_choice, required, closes_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(id, question, description || null, JSON.stringify(options), JSON.stringify(documents || []), rankedChoice, required ? 1 : 0, closesAt || null);
+          `INSERT INTO polls (id, question, description, options_json, documents_json, ranked_choice, required, opens_at, closes_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(id, question, description || null, JSON.stringify(options), JSON.stringify(documents || []), rankedChoice, required ? 1 : 0, opens.toISOString(), closes.toISOString());
 
         const eligible = db.prepare("SELECT id FROM members WHERE active = 1").all();
         const insertEligible = db.prepare("INSERT INTO poll_eligible_members (poll_id, member_id) VALUES (?, ?)");
@@ -147,25 +242,26 @@ export default async function pollRoutes(app) {
     });
   });
 
-  // Anyone logged in: list open polls
+  // Anyone logged in (including members who joined after the poll was
+  // created): list polls that are open now or scheduled to open. Upcoming
+  // ones come back with phase "upcoming" so the page can show when voting
+  // starts; requesting a ballot is refused until then.
   app.get("/api/polls", async (req, reply) => {
     if (!currentMember(req)) return reply.code(401).send({ error: "login required" });
+    const rows = db.prepare("SELECT * FROM polls WHERE status = 'open' ORDER BY opens_at ASC").all();
+    return rows.map(publicPoll);
+  });
+
+  // Admin: every poll (any status), newest first, with how many members
+  // have taken a ballot — a participation count only, never vote content.
+  app.get("/api/admin/polls", { preHandler: requireAdminStub }, async () => {
     const rows = db
       .prepare(
-        "SELECT id, question, description, options_json, documents_json, ranked_choice, required, status, closes_at FROM polls WHERE status = 'open'"
+        `SELECT p.*, (SELECT COUNT(*) FROM poll_participation pp WHERE pp.poll_id = p.id) AS participants
+         FROM polls p ORDER BY p.created_at DESC`
       )
       .all();
-    return rows.map(r => ({
-      id: r.id,
-      question: r.question,
-      description: r.description,
-      options: JSON.parse(r.options_json),
-      documents: JSON.parse(r.documents_json),
-      votingMethod: r.ranked_choice ? "ranked" : "single",
-      required: !!r.required,
-      status: r.status,
-      closes_at: r.closes_at,
-    }));
+    return rows.map(r => ({ ...publicPoll(r), participants: r.participants }));
   });
 
   // Member requests a ballot. This is the ONE place a member's identity
@@ -176,8 +272,8 @@ export default async function pollRoutes(app) {
     const memberId = currentMember(req);
     if (!memberId) return reply.code(401).send({ error: "login required" });
 
-    const poll = db.prepare("SELECT * FROM polls WHERE id = ? AND status = 'open'").get(req.params.id);
-    if (!poll) return reply.code(404).send({ error: "poll not open" });
+    const poll = db.prepare("SELECT * FROM polls WHERE id = ?").get(req.params.id);
+    if (rejectIfNotVotable(poll, reply)) return reply;
 
     const already = db
       .prepare("SELECT 1 FROM poll_participation WHERE poll_id = ? AND member_id = ?")
@@ -200,7 +296,7 @@ export default async function pollRoutes(app) {
       ballotToken: token,
       options: JSON.parse(poll.options_json),
       votingMethod: poll.ranked_choice ? "ranked" : "single",
-      editableUntil: editableUntilFor({ issued_at: issuedAt }),
+      editableUntil: editableUntilFor({ issued_at: issuedAt }, poll),
     };
   });
 
@@ -219,12 +315,12 @@ export default async function pollRoutes(app) {
 
     const latest = db
       .prepare(
-        "SELECT choice_json, comment, hash FROM votes WHERE poll_id = ? AND ballot_token = ? ORDER BY created_at DESC, id DESC LIMIT 1"
+        "SELECT choice_json, comment, hash FROM votes WHERE poll_id = ? AND ballot_token = ? ORDER BY rowid DESC LIMIT 1"
       )
       .get(poll.id, token);
 
-    const deadline = new Date(tokenRow.issued_at).getTime() + BALLOT_EDIT_MINUTES * 60_000;
-    const editable = poll.status === "open" && Date.now() <= deadline;
+    const deadline = editDeadlineMs(tokenRow, poll);
+    const editable = pollPhase(poll) === "open" && Date.now() <= deadline;
 
     return {
       hasVoted: !!latest,
@@ -244,8 +340,8 @@ export default async function pollRoutes(app) {
   // a new revision rather than being rejected as "already used".
   app.post("/api/polls/:id/vote", async (req, reply) => {
     const { ballotToken, choice, comment } = req.body || {};
-    const poll = db.prepare("SELECT * FROM polls WHERE id = ? AND status = 'open'").get(req.params.id);
-    if (!poll) return reply.code(404).send({ error: "poll not open" });
+    const poll = db.prepare("SELECT * FROM polls WHERE id = ?").get(req.params.id);
+    if (rejectIfNotVotable(poll, reply)) return reply;
 
     const options = JSON.parse(poll.options_json);
     if (poll.ranked_choice) {
@@ -275,17 +371,21 @@ export default async function pollRoutes(app) {
 
     const { hash } = appendVote(poll.id, choice, cleanComment, ballotToken);
     markBallotTokenUsed(ballotToken);
-    return { ok: true, receiptHash: hash, editableUntil: editableUntilFor(tokenRow) };
+    return { ok: true, receiptHash: hash, editableUntil: editableUntilFor(tokenRow, poll) };
   });
 
   // Admin: close a poll and get the tally
+  // (Polls also close on their own at closes_at — this is for closing early.)
   app.post("/api/admin/polls/:id/close", { preHandler: requireAdminStub }, async (req, reply) => {
-    db.prepare("UPDATE polls SET status = 'closed' WHERE id = ?").run(req.params.id);
+    const result = db.prepare("UPDATE polls SET status = 'closed' WHERE id = ?").run(req.params.id);
+    if (result.changes === 0) return reply.code(404).send({ error: "poll not found" });
     return computeResults(req.params.id);
   });
 
-  app.get("/api/admin/polls/:id/results", { preHandler: requireAdminStub }, async (req) => {
-    return computeResults(req.params.id);
+  app.get("/api/admin/polls/:id/results", { preHandler: requireAdminStub }, async (req, reply) => {
+    const results = computeResults(req.params.id);
+    if (!results) return reply.code(404).send({ error: "poll not found" });
+    return results;
   });
 
   // Admin: per-member count of missed REQUIRED, CLOSED polls, derived
@@ -336,7 +436,7 @@ export default async function pollRoutes(app) {
     if (row.ballot_token) {
       const latest = db
         .prepare(
-          "SELECT hash FROM votes WHERE poll_id = ? AND ballot_token = ? ORDER BY created_at DESC, id DESC LIMIT 1"
+          "SELECT hash FROM votes WHERE poll_id = ? AND ballot_token = ? ORDER BY rowid DESC LIMIT 1"
         )
         .get(req.params.id, row.ballot_token);
       current = latest?.hash === hash;

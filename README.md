@@ -53,10 +53,21 @@ terminal** — copy the link from there to test the flow.
 - Admin opens a poll — single-choice (incl. Yes/No) or ranked-choice, with
   an optional description blurb and attached reference documents (drop
   files into `backend/data/documents/`, pick them in the poll form), and
-  an optional `required` flag for the missed-vote count below
-- Poll eligibility is snapshotted into `poll_eligible_members` at creation
-  time, so a member joining or leaving later can't retroactively change
-  who that specific poll counted as eligible
+  an optional `required` flag for the missed-vote count below, and a
+  voting window: `closesAt` is required, `opensAt` defaults to now. Ballots
+  are refused outside the window, and the poll closes itself at `closesAt`
+  (admins can still close early from the admin page, which also lists every
+  poll with its phase — upcoming / open / closed — and its results)
+- Members who join after a poll was created (e.g. via an invite) can still
+  vote in it while it's open
+- Invitations can be tied to a poll: the confirm link then expires when
+  that poll closes (instead of 30 days) and the email names the poll and
+  its voting window (dates shown in `POLL_TIMEZONE`, default
+  America/New_York)
+- Poll eligibility for the **missed-vote count** is snapshotted into
+  `poll_eligible_members` at creation time, so a member joining or leaving
+  later can't retroactively change who that specific poll counted as
+  eligible (it doesn't restrict who may vote — see above)
 - Member requests a ballot (records participation — the non-repudiation
   step) and casts a vote using only an anonymous token
 - A cast vote can be revised for `BALLOT_EDIT_MINUTES` (default 30)
@@ -116,9 +127,9 @@ terminal** — copy the link from there to test the flow.
    away or the X to close), pre-filling the member's current choice from
    `GET /api/polls/:id/my-ballot` using a ballot token persisted in
    `localStorage` (so it survives a reload within the edit window).
-6. **Richer poll lifecycle** (Draft → Scheduled → Open → Closed →
-   Verified → Published) is a reasonable future upgrade, not yet built —
-   current polls are just open/closed.
+6. **Richer poll lifecycle** (Draft → Verified → Published) is a
+   reasonable future upgrade, not yet built — polls currently go
+   Scheduled (upcoming) → Open → Closed via their opens/closes dates.
 7. **Three-missed-required-vote → Adjacent status is not automated.**
    `GET /api/admin/participation/misses` surfaces the count; an admin
    still has to act on it manually. Automating the status transition

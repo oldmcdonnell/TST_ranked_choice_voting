@@ -10,6 +10,12 @@
     <h3>{{ poll.question }}</h3>
     <p v-if="poll.description" style="white-space:pre-wrap;color:#444">{{ poll.description }}</p>
     <p v-if="poll.required" style="font-size:.85em;color:#a33">This vote is required.</p>
+    <!-- Voting window (opensAt / closesAt from GET /api/polls). The backend
+         refuses ballots outside it and closes the poll itself at closesAt. -->
+    <p v-if="poll.closesAt" style="font-size:.85em;color:#666">
+      Voting {{ poll.phase === "upcoming" ? "opens" : "opened" }} {{ formatTime(poll.opensAt) }}
+      · closes {{ formatTime(poll.closesAt) }}
+    </p>
     <!-- Links to any reference files the admin attached to this poll.
          URLs come from documentUrl() → GET /api/documents/:name
          (backend/src/routes/documents.js, requires login). -->
@@ -25,7 +31,12 @@
     <!-- Voting/editing form: shown whenever the edit window is still open,
          whether or not they've voted yet. `editable` is set by
          loadBallotState() on page load and by submitVote() after voting. -->
-    <div v-if="editable[poll.id] !== false">
+    <!-- Scheduled but not open yet: show the blurb/documents, no ballot. -->
+    <p v-if="poll.phase === 'upcoming'" style="font-weight:600">
+      Voting hasn't opened yet — come back at {{ formatTime(poll.opensAt) }}.
+    </p>
+
+    <div v-else-if="editable[poll.id] !== false">
       <p v-if="hasVoted[poll.id]" style="color:#666;font-size:.9em">
         You already voted — you can still change your answer until
         {{ formatTime(editableUntil[poll.id]) }}.

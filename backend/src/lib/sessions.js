@@ -60,7 +60,9 @@ export function destroySession(sessionId) {
 // (magic-link logins, congregation invites, spent ballot tokens).
 export function pruneExpiredSessions() {
   const now = new Date().toISOString();
-  db.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
+  // expires_at is stored as ISO ("...T...Z"), so compare against an ISO
+  // "now" — datetime('now') uses a space separator and string-compares wrong.
+  db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(now);
   db.prepare("DELETE FROM login_tokens WHERE used = 1 OR expires_at < ?").run(now);
   db.prepare("DELETE FROM invite_tokens WHERE used = 1 OR expires_at < ?").run(now);
   // Ballot tokens stay re-votable for a 30-minute edit window (see
