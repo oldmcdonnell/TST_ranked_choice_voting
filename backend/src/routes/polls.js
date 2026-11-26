@@ -119,7 +119,7 @@ function latestVotesByToken(pollId) {
 // options (partial ranking) — a ballot's vote goes to its highest-ranked
 // option that hasn't been eliminated yet, or is "exhausted" (counted in
 // totalVotes but not in that round) once all its ranked options are gone.
-function runIRV(ballots, options) {
+export function runIRV(ballots, options) {
   let remaining = [...options];
   const rounds = [];
 
